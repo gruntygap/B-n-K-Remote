@@ -1,0 +1,120 @@
+"""Serve the compiled Svelte remote and a small same-origin IR API."""
+
+import atexit
+import logging
+from urllib.parse import urlsplit
+
+from flask import Flask, jsonify, request, send_from_directory
+import serial
+from werkzeug.exceptions import HTTPException
+
+from control import IR_COMMANDS, build_ir_command
+from serial_connection import SerialBusyError, SerialConnection
+from settings import ROOT, Settings
+
+
+def create_app(settings=None, connection=None):
+    settings = settings or Settings.load()
+    settings.validate()
+    connection = connection or SerialConnection(settings)
+    app = Flask(__name__, static_folder=None)
+    app.config["MAX_CONTENT_LENGTH"] = 1024
+    app.extensions["receiver"] = connection
+    atexit.register(connection.close)
+    dist = ROOT / "frontend" / "dist"
+
+    @app.after_request
+    def headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+        )
+        if request.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.errorhandler(HTTPException)
+    def http_error(error):
+        if request.path.startswith("/api/"):
+            return jsonify(error=error.description), error.code
+        return error
+
+    @app.get("/api/remote")
+    def remote():
+        # Loading the page does not open the adapter or transmit a command.
+        return jsonify(
+            commands=[dict(name=name, code=f"{c.code:02X}", description=c.description)
+                      for name, c in IR_COMMANDS.items()],
+            zones=list(settings.remote_zones), default_zone=settings.default_zone,
+            dry_run=settings.dry_run,
+        )
+
+    @app.post("/api/ir")
+    def ir():
+        origin = request.headers.get("Origin")
+        if (request.headers.get("Sec-Fetch-Site") == "cross-site"
+                or (origin and urlsplit(origin).netloc != request.host)):
+            return jsonify(error="Use the remote from this server's website."), 403
+        if not request.is_json:
+            return jsonify(error="A JSON command is required."), 415
+        data = request.get_json()
+        if not isinstance(data, dict):
+            return jsonify(error="Expected a JSON object."), 400
+        if set(data) - {"command", "zone"}:
+            return jsonify(error="Only command and zone may be supplied."), 400
+        name = data.get("command")
+        zone = data.get("zone", settings.default_zone)
+        if not isinstance(name, str) or name not in IR_COMMANDS:
+            return jsonify(error="Unknown IR command."), 400
+        if type(zone) is not int or zone not in settings.remote_zones:
+            return jsonify(error="Choose a configured zone."), 400
+        packet = build_ir_command(name, zone, settings.device_address)
+        try:
+            response = connection.send(packet)
+        except SerialBusyError as error:
+            return jsonify(error=str(error)), 429
+        except (serial.SerialException, OSError):
+            app.logger.exception("Serial transaction failed")
+            return jsonify(error="Serial connection unavailable. Check the adapter, port and permissions. "
+                           "The command was not retried; check the receiver before sending again."), 503
+        return jsonify(
+            command=name, zone=zone, dry_run=settings.dry_run,
+            packet=packet.decode("ascii"), response=response.decode("ascii", errors="replace"),
+        )
+
+    @app.get("/")
+    def index():
+        if not (dist / "index.html").is_file():
+            return "Frontend not built. Run: cd frontend && npm ci && npm run build", 503
+        response = send_from_directory(dist, "index.html")
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    @app.get("/assets/<path:filename>")
+    def assets(filename):
+        return send_from_directory(dist / "assets", filename, max_age=31536000)
+
+    @app.get("/favicon.svg")
+    def favicon():
+        return send_from_directory(dist, "favicon.svg")
+
+    return app
+
+
+def main():
+    from waitress import serve
+
+    logging.basicConfig(level=logging.INFO)
+    settings = Settings.load()
+    app = create_app(settings)
+    try:
+        # One process owns the serial adapter; HTTP workers share its lock.
+        serve(app, host=settings.web_host, port=settings.web_port, threads=4)
+    finally:
+        app.extensions["receiver"].close()
+
+
+if __name__ == "__main__":
+    main()
