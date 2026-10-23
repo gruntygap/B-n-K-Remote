@@ -32,8 +32,7 @@ select:disabled {
   opacity: 0.48;
 }
 button:focus-visible,
-summary:focus-visible,
-a:focus-visible {
+summary:focus-visible {
   outline: 3px solid #e5c07f;
   outline-offset: 4px;
 }
@@ -56,9 +55,6 @@ button {
     transform 0.1s,
     background 0.1s;
 }
-a {
-  color: inherit;
-}
 svg {
   flex-shrink: 0;
 }
@@ -67,62 +63,6 @@ svg {
   margin: auto;
   padding: 32px 44px max(24px, env(safe-area-inset-bottom));
   background: radial-gradient(ellipse at 50% 34%, #f6f6ed99, transparent 65%);
-}
-.masthead {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 22px;
-  border-bottom: 1px solid #ccd2c5;
-}
-.wordmark {
-  text-decoration: none;
-  font-family: Georgia, serif;
-  font-weight: bold;
-  font-size: 36px;
-  letter-spacing: -3px;
-}
-.wordmark > span:first-child {
-  font-size: 26px;
-  font-style: italic;
-  margin: 0 3px;
-}
-.wordmark-dot {
-  color: #9a7648;
-}
-.masthead-right {
-  text-align: right;
-  display: grid;
-  gap: 6px;
-}
-.eyebrow {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 2.1px;
-}
-.edition {
-  font-size: 11px;
-  color: #70806e;
-}
-.intro {
-  text-align: center;
-  margin: 32px 0 27px;
-}
-.intro .eyebrow {
-  color: #7a805f;
-  margin: 0 0 10px;
-}
-.intro h1 {
-  font:
-    400 36px/1.2 Georgia,
-    serif;
-  letter-spacing: -1.2px;
-  margin: 0 0 9px;
-}
-.intro > p:last-child {
-  font-size: 13px;
-  color: #6c7565;
-  margin: 0;
 }
 .remote-shell {
   width: 366px;
@@ -547,24 +487,6 @@ svg {
   font-size: 12px;
   font-weight: 600;
 }
-.remote-foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-top: 1px solid #53614755;
-  padding: 19px 3px 0;
-  color: #7f8a74;
-  font-size: 6px;
-  letter-spacing: 1.7px;
-}
-.remote-foot > span:first-child {
-  font-family: Georgia, serif;
-  font-size: 14px;
-  letter-spacing: -1px;
-}
-.remote-foot > span:last-child {
-  letter-spacing: 3px;
-}
 .feedback {
   width: 366px;
   max-width: 100%;
@@ -601,23 +523,6 @@ svg {
   font-size: 11px;
   min-height: 44px;
 }
-.footnote {
-  text-align: center;
-  font-size: 8px;
-  letter-spacing: 1.6px;
-  color: #858f79;
-  margin: 6px 0 32px;
-}
-.page-footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  border-top: 1px solid #ccd2c5;
-  padding-top: 18px;
-  font-size: 8px;
-  color: #858f79;
-  letter-spacing: 1.2px;
-}
 @keyframes pulse {
   from {
     opacity: 0.4;
@@ -630,35 +535,6 @@ svg {
   .page {
     padding: 18px 16px max(22px, env(safe-area-inset-bottom));
   }
-  .masthead {
-    padding-bottom: 13px;
-  }
-  .wordmark {
-    font-size: 30px;
-  }
-  .wordmark > span:first-child {
-    font-size: 23px;
-  }
-  .masthead-right .eyebrow {
-    font-size: 7px;
-    letter-spacing: 1.5px;
-  }
-  .edition {
-    font-size: 9px;
-  }
-  .intro {
-    margin: 22px 0;
-  }
-  .intro h1 {
-    font-size: 30px;
-  }
-  .intro .eyebrow {
-    font-size: 8px;
-    letter-spacing: 1.7px;
-  }
-  .intro > p:last-child {
-    font-size: 12px;
-  }
   .remote-shell {
     width: 100%;
     max-width: 366px;
@@ -666,10 +542,6 @@ svg {
   }
   .feedback {
     max-width: 350px;
-  }
-  .page-footer {
-    font-size: 6px;
-    letter-spacing: 0.7px;
   }
   .control-center {
     gap: 15px;
@@ -736,9 +608,6 @@ svg {
   background: #fff1e9;
   border-color: #e8c2ad;
 }
-.page-footer {
-  margin-bottom: 70px;
-}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -746,4 +615,9 @@ svg {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* Leave space for the fixed command feedback below the last control. */
+.page main {
+  padding-bottom: 70px;
 }

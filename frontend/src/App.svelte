@@ -72,14 +72,7 @@
 </script>
 
 <div class="page">
-  <header class="masthead">
-    <a class="wordmark" href="/" aria-label="B and K remote home">B<span>&</span>K<span class="wordmark-dot">.</span></a>
-    <div class="masthead-right"><span class="eyebrow">THE LISTENING ROOM</span><span class="edition">Receiver remote / 01</span></div>
-  </header>
-
-  <main>
-    <div class="intro"><p class="eyebrow">GOOD SOUND. WITHIN REACH.</p><h1>Settle in. Tune out.</h1><p>Your receiver, right where you need it.</p></div>
-
+  <main aria-label="Receiver remote">
     <div class="remote-shell">
       <div class="remote-topline"><span class="remote-brand">B&K <small>COMPONENTS</small></span><span class="indicator" class:error class:working={busy}></span></div>
 
@@ -182,14 +175,11 @@
         </div>
       </details>
 
-      <div class="remote-foot"><span>B&K</span><span>MADE FOR LISTENING</span><span>•••</span></div>
     </div>
 
     <div class="feedback" class:error role="status" aria-live="polite" aria-atomic="true">
       <span class="feedback-dot" class:working={busy || loading}></span><p>{message}</p>
       {#if !config && !loading}<button class="retry" onclick={loadRemote}>Retry</button>{/if}
     </div>
-    <p class="footnote">{config?.dry_run ? 'PREVIEW MODE · NO SERIAL OUTPUT' : 'LOCAL CONTROL · NO CLOUD REQUIRED'}</p>
   </main>
-  <footer class="page-footer"><span>A LITTLE LESS SCROLL. A LITTLE MORE SOUND.</span><span>B&K / REMOTE</span></footer>
 </div>
