@@ -314,6 +314,9 @@ svg {
   justify-content: space-around;
   gap: 20px;
 }
+.sound-controls {
+  width: 100%;
+}
 .dial-control {
   display: flex;
   flex-direction: column;

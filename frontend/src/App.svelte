@@ -227,6 +227,14 @@
         </div>
         <InputDisplay parameters={config?.current_input_parameters ?? []} readings={currentInput}
           status={inputStatus} supported={zone === 1} />
+        <section class="sound-controls" aria-label="Current input sound controls">
+          {#each [['mode', 'Surround mode'], ['sub_level', 'Sub level']] as [name, label]}
+            <div class="adjust-row"><span>{label}</span>
+              <RemoteKey command={`${name}_down`} label={`${label} down`} icon="minus" variant="adjust" {disabled} onpress={send} />
+              <RemoteKey command={`${name}_up`} label={`${label} up`} icon="plus" variant="adjust" {disabled} onpress={send} />
+            </div>
+          {/each}
+        </section>
         <section class="navigation" aria-label="Menu navigation">
           <span class="section-label">NAVIGATE</span>
           <div class="dpad">

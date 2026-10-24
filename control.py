@@ -10,8 +10,10 @@ class IRCommand(NamedTuple):
 # Transcribed from Appendix F, pages 27-28 of the CT610/310/600
 # BKC-DIP Product Specific Appendices, version 2.00.05 (02/09/04).
 # Codes are hexadecimal; descriptions preserve the manual's wording.
+# MODE +/- and SUB LVL +/- come from Series I Appendix F, pages 19-20.
 # Example: IR_COMMANDS["power_on"].code == 0x40
 IR_COMMANDS = {
+    "mode_down": IRCommand(0x00, "MODE -"),
     "save": IRCommand(0x02, "SAVE"),
     "balance_right": IRCommand(0x04, "(BALANCE) RIGHT"),
     "enter": IRCommand(0x0C, "ENTER"),
@@ -44,6 +46,7 @@ IR_COMMANDS = {
     "video_source_up": IRCommand(0x5F, "VIDEO SOURCE +"),
     "input_3": IRCommand(0x60, "INPUT 3"),
     "preset_down": IRCommand(0x63, "PRESET -"),
+    "mode_up": IRCommand(0x64, "MODE +"),
     "source_down": IRCommand(0x65, "SOURCE -"),
     "source_up": IRCommand(0x66, "SOURCE +"),
     "digit_5": IRCommand(0x6C, "5"),
@@ -52,6 +55,7 @@ IR_COMMANDS = {
     "fm": IRCommand(0x71, "FM"),
     "up": IRCommand(0x74, "UP"),
     "input_9": IRCommand(0x76, "INPUT 9"),
+    "sub_level_up": IRCommand(0x78, "SUB LVL +"),
     "digit_0": IRCommand(0x7C, "0"),
     "power_off": IRCommand(0x80, "POWER OFF"),
     "digit_1": IRCommand(0x8C, "1"),
@@ -66,6 +70,7 @@ IR_COMMANDS = {
     "digit_4": IRCommand(0xAC, "4"),
     "input_4": IRCommand(0xB0, "INPUT 4"),
     "down": IRCommand(0xB4, "DOWN"),
+    "sub_level_down": IRCommand(0xB8, "SUB LVL -"),
     "exit": IRCommand(0xBE, "EXIT"),
     "mute": IRCommand(0xC0, "MUTE"),
     "volume_down": IRCommand(0xC4, "MASTER VOL -"),

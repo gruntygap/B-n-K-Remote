@@ -2,7 +2,7 @@
 
 A local receiver remote for Raspberry Pi, with a Python backend and a Svelte
 frontend sized for an iPhone. Physical-style controls cover power, volume, menu
-navigation, inputs, tuner, tone and the number pad. All 76 Appendix F IR commands
+navigation, inputs, tuner, tone and the number pad. All 80 configured IR commands
 are available in the searchable **All IR commands** drawer.
 
 The volume dial beside the volume buttons supports touch rotation and keyboard
@@ -21,6 +21,8 @@ Zone 2 displays an availability message. Missing or invalid replies show dashes.
 Surround command 2 retains both model-specific meanings. Rear delay is shown
 for non-Pro Logic; the PDF gives a 16-30 ms Pro Logic range without an exact
 raw-value mapping, so the display notes that distinction.
+Surround mode and sub-level +/- buttons below this display send Series I IR
+codes `00`/`64` and `B8`/`78`, respectively, then refresh the reported values.
 
 The top indicator shows the selected zone's reported power as On, Off or Unknown
 (Preview without a receiver). Power is read from Appendix D realtime parameter

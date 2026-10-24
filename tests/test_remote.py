@@ -52,7 +52,7 @@ class ApiTests(unittest.TestCase):
     def test_catalog_loading_never_sends(self):
         response = self.client.get("/api/remote")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json["commands"]), 76)
+        self.assertEqual(len(response.json["commands"]), 80)
         self.assertEqual(len(control.UNIT_PARAMETERS), 42)
         self.connection.send.assert_not_called()
         self.assertEqual(response.headers["Cache-Control"], "no-store")
@@ -78,6 +78,14 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/ir", data="command=power_on").status_code, 415)
         self.assertEqual(self.client.post("/api/ir", data='{"', content_type="application/json").status_code, 400)
         self.connection.send.assert_not_called()
+
+    def test_mode_and_sub_level_codes(self):
+        for name, code in (("mode_down", "00"), ("mode_up", "64"),
+                           ("sub_level_up", "78"), ("sub_level_down", "B8")):
+            with self.subTest(command=name):
+                response = self.client.post("/api/ir", json={"command": name, "zone": 1})
+                self.assertEqual(response.status_code, 200)
+                self.connection.send.assert_called_with(control.build_bk_command(f"00,S,I,1={code}"))
 
     def test_cross_site_requests_rejected(self):
         response = self.client.post("/api/ir", json={"command": "power_on"},
