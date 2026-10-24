@@ -5,15 +5,16 @@ After=network.target
 [Service]
 Type=simple
 # Change both the user and paths to match your Pi's account and checkout.
-User=pi
+User=grantgap
 SupplementaryGroups=dialout
-WorkingDirectory=/home/pi/B-n-K-Remote
-ExecStart=/home/pi/B-n-K-Remote/.venv/bin/python control.py --serve
+WorkingDirectory=/home/grantgap/B-n-K-Remote
+ExecStart=/home/grantgap/B-n-K-Remote/.venv/bin/python control.py --serve
 Environment=PYTHONUNBUFFERED=1
 Restart=on-failure
 RestartSec=3
 PrivateTmp=true
 NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
