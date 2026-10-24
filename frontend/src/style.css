@@ -1,7 +1,10 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #25352b;
-  background: #e9ece3;
+  color: #e4e6d8;
+  background: #242c26;
+  color-scheme: dark;
+  /* Disable double-tap zoom, including taps between or on disabled keys. */
+  touch-action: manipulation;
   font-synthesis: none;
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
@@ -11,6 +14,12 @@
 }
 body {
   margin: 0;
+  min-width: 280px;
+}
+html,
+body,
+#app {
+  min-height: 100%;
 }
 button,
 input,
@@ -59,24 +68,21 @@ svg {
   flex-shrink: 0;
 }
 .page {
-  max-width: 1080px;
-  margin: auto;
-  padding: 32px 44px max(24px, env(safe-area-inset-bottom));
-  background: radial-gradient(ellipse at 50% 34%, #f6f6ed99, transparent 65%);
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #242c26;
 }
 .remote-shell {
-  width: 366px;
+  width: 100%;
+  max-width: 366px;
+  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0 auto;
   color: #e4e6d8;
-  border-radius: 38px 38px 52px 52px;
-  padding: 24px 25px 18px;
-  background: linear-gradient(110deg, #303a32, #242c26 45%, #1f2721);
-  border: 1px solid #59604b;
-  box-shadow:
-    inset 2px 2px 2px #ffffff16,
-    inset -3px -3px 3px #0005,
-    0 18px 28px #1d2e2324,
-    0 3px 4px #1d2e2340;
+  padding: max(24px, env(safe-area-inset-top))
+    max(25px, env(safe-area-inset-right))
+    calc(88px + env(safe-area-inset-bottom))
+    max(25px, env(safe-area-inset-left));
 }
 .remote-topline {
   display: flex;
@@ -532,14 +538,6 @@ svg {
   }
 }
 @media (max-width: 540px) {
-  .page {
-    padding: 18px 16px max(22px, env(safe-area-inset-bottom));
-  }
-  .remote-shell {
-    width: 100%;
-    max-width: 366px;
-    padding: 21px 23px 18px;
-  }
   .feedback {
     max-width: 350px;
   }
@@ -550,13 +548,9 @@ svg {
   }
 }
 @media (max-width: 360px) {
-  .page {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
   .remote-shell {
-    padding-left: 18px;
-    padding-right: 18px;
+    padding-left: max(18px, env(safe-area-inset-left));
+    padding-right: max(18px, env(safe-area-inset-right));
   }
   .control-center {
     padding-left: 6px;
@@ -599,14 +593,16 @@ svg {
   min-height: 44px;
   margin: 0;
   padding: 12px 14px;
-  background: #f4f5ed;
-  border: 1px solid #d0d7c5;
+  color: #c6cfb8;
+  background: #1b241e;
+  border: 1px solid #59634d;
   border-radius: 12px;
   box-shadow: 0 4px 24px #22351c22;
 }
 .feedback.error {
-  background: #fff1e9;
-  border-color: #e8c2ad;
+  color: #f1b497;
+  background: #382820;
+  border-color: #995b47;
 }
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -615,9 +611,4 @@ svg {
     animation: none !important;
     transition: none !important;
   }
-}
-
-/* Leave space for the fixed command feedback below the last control. */
-.page main {
-  padding-bottom: 70px;
 }
