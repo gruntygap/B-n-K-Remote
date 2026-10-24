@@ -102,17 +102,28 @@ svg {
   margin-left: 8px;
   color: #a4ae99;
 }
+.power-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #a4ae99;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
 .indicator {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #a8b394;
-  box-shadow: 0 0 6px #b0c09d55;
+  background: #747d70;
 }
-.indicator.error {
-  background: #f1a081;
+.power-status.on .indicator {
+  background: #b4d78a;
+  box-shadow: 0 0 6px #b4d78a88;
 }
-.indicator.working,
+.power-status.off .indicator {
+  background: #c59971;
+}
 .feedback-dot.working {
   animation: pulse 0.7s ease-in-out infinite alternate;
 }

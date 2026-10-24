@@ -115,6 +115,14 @@ CURRENT_INPUT_PARAMETERS = {
         unit="dB", scale=0.5, offset=-12, note="Note 2"),
 }
 
+# Appendix D, p. 15, Note 14: realtime identifiers, not preset parameters
+# or the bit/register coordinates printed beside them. Values: 0=Off, 1=On.
+ZONE_POWER_PARAMETERS = {
+    zone: Parameter(f"zone_{zone}_power", code, f"Zone {zone} power", kind="boolean", maximum=1,
+                    choices=((0, "Off"), (1, "On")), note="Appendix D, Note 14")
+    for zone, code in ((1, 0x13), (2, 0x14))
+}
+
 
 @dataclass(frozen=True)
 class ParameterAddress:

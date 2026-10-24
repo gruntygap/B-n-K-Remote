@@ -16,6 +16,10 @@ def status_reply(values='1=38,F3=5,F4=1,F5=18,F6=5,F7=19,F8=F,F9=0', zone=1):
     return build_bk_command(f'0,R,P{zone:X}=FF,{values}')
 
 
+def power_reply(zone=1, raw=1):
+    return build_bk_command(f'0,R,R,{0x12 + zone:X}={raw:X}')
+
+
 class InputParameterTests(unittest.TestCase):
     def test_all_seven_aliases_and_note_conversions(self):
         parameters = tuple(CURRENT_INPUT_PARAMETERS.values())
@@ -50,7 +54,7 @@ class InputParameterTests(unittest.TestCase):
 class StatusApiTests(unittest.TestCase):
     def setUp(self):
         self.connection = Mock()
-        self.connection.query.return_value = status_reply()
+        self.connection.query.return_value = status_reply() + power_reply()
         self.client = create_app(Settings(), self.connection).test_client()
 
     def test_one_poll_fetches_volume_and_all_input_aliases(self):
@@ -65,12 +69,15 @@ class StatusApiTests(unittest.TestCase):
         self.assertEqual(packet, build_bk_command('00,G,P1=FF,1,F3,F4,F5,F6,F7,F8,F9'))
         self.assertFalse(accepts(status_reply('1=38')))
         self.assertFalse(accepts(status_reply(zone=2)))
-        self.assertTrue(accepts(status_reply()))
+        self.assertFalse(accepts(status_reply()))
+        self.assertTrue(accepts(status_reply() + power_reply()))
+        self.assertEqual(self.connection.query.call_args.kwargs['before'], build_bk_command('00,G,R,13'))
+        self.assertIs(result.json['power']['value'], True)
         self.connection.query.assert_called_once()
         self.connection.send.assert_not_called()
 
     def test_configured_address_and_zone_two_do_not_request_zone_one_aliases(self):
-        self.connection.query.return_value = status_reply('1=38', zone=2)
+        self.connection.query.return_value = status_reply('1=38', zone=2) + power_reply(zone=2)
         client = create_app(replace(Settings(), device_address=0x1A), self.connection).test_client()
         response = client.get('/api/status?zone=2')
         self.assertEqual(response.status_code, 200)
@@ -78,11 +85,14 @@ class StatusApiTests(unittest.TestCase):
         self.assertEqual(response.json['current_input'], {})
         self.assertTrue(response.json['complete'])
         self.assertEqual(self.connection.query.call_args.args[0], build_bk_command('1A,G,P2=FF,1'))
+        self.assertEqual(self.connection.query.call_args.kwargs['before'], build_bk_command('1A,G,R,14'))
+        self.assertIs(response.json['power']['value'], True)
 
     def test_partial_timeout_keeps_only_valid_reported_fields(self):
         self.connection.query.side_effect = SerialReplyTimeout(status_reply('1=38,F5=18'))
         result = self.client.get('/api/status').json
         self.assertFalse(result['complete'])
+        self.assertIsNone(result['power'])
         self.assertEqual(result['volume']['value'], -40)
         self.assertEqual(result['current_input']['center_level']['value'], 0)
         self.assertIsNone(result['current_input']['surround_mode'])
@@ -100,6 +110,7 @@ class StatusApiTests(unittest.TestCase):
         client = create_app(replace(Settings(), dry_run=True), self.connection).test_client()
         result = client.get('/api/status').json
         self.assertTrue(result['dry_run'])
+        self.assertIsNone(result['power'])
         self.assertFalse(result['complete'])
         self.assertTrue(all(reading is None for reading in result['current_input'].values()))
         for zone in ['bad', '3', '0']:

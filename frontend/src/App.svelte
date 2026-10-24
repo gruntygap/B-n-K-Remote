@@ -21,6 +21,8 @@
   let search = $state('');
   let filtered = $derived(config?.commands.filter(c => `${c.name} ${c.description} ${c.code}`.toLowerCase().includes(search.toLowerCase())) ?? []);
   let volume = $state<Reading | null>(null);
+  let power = $state<boolean | null>(null);
+  let powerLabel = $derived(config?.dry_run ? 'PREVIEW' : power === true ? 'ON' : power === false ? 'OFF' : 'UNKNOWN');
   let volumeStatus = $state('Reading receiver…');
   let currentInput = $state<Record<string, Reading | null>>({});
   let inputStatus = $state('Reading receiver…');
@@ -40,6 +42,7 @@
         const result = await api(`/api/status?zone=${requestedZone}`);
         if (zone !== requestedZone || !mounted) return;
         volume = result.volume;
+        power = typeof result.power?.value === 'boolean' ? result.power.value : null;
         volumeStatus = volume ? 'Live · turn to adjust' : 'Volume unavailable';
         currentInput = result.current_input;
         const available = Object.values(currentInput).filter(Boolean).length;
@@ -48,6 +51,7 @@
       } catch {
         if (zone !== requestedZone || !mounted) return;
         volume = null;
+        power = null;
         volumeStatus = 'No volume reply';
         currentInput = {};
         inputStatus = 'No parameter reply';
@@ -102,6 +106,7 @@
       volumeTimer = undefined;
       volume = null;
       volumeStatus = currentConfig?.dry_run ? 'Preview · no live volume' : 'Reading receiver…';
+      power = null;
       currentInput = {};
       inputStatus = currentConfig?.dry_run ? 'Preview · no live values' : 'Reading receiver…';
       if (currentConfig && currentZone) void refreshStatus();
@@ -179,7 +184,13 @@
 <div class="page">
   <main aria-label="Receiver remote">
     <div class="remote-shell">
-      <div class="remote-topline"><span class="remote-brand">B&K <small>COMPONENTS</small></span><span class="indicator" class:error class:working={busy}></span></div>
+      <div class="remote-topline">
+        <span class="remote-brand">B&K <small>COMPONENTS</small></span>
+        <span class="power-status" class:on={power === true} class:off={power === false}
+          aria-label={`Zone ${zone} power: ${powerLabel.toLowerCase()}`}>
+          <span class="indicator" aria-hidden="true"></span>ZONE {zone} · {powerLabel}
+        </span>
+      </div>
 
       <div class="display">
         <div class="display-meta"><span>ZONE {String(zone).padStart(2, '0')}</span><span>{config?.dry_run ? 'PREVIEW' : 'SERIAL REMOTE'}</span></div>

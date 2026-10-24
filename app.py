@@ -9,7 +9,7 @@ import serial
 from werkzeug.exceptions import HTTPException
 
 from control import IR_COMMANDS, build_ir_command
-from parameters import CURRENT_INPUT_PARAMETERS, PRESET_PARAMETERS, ParameterAddress, VOLUME
+from parameters import CURRENT_INPUT_PARAMETERS, PRESET_PARAMETERS, ParameterAddress, VOLUME, ZONE_POWER_PARAMETERS
 from serial_connection import SerialBusyError, SerialConnection, SerialReplyTimeout
 from settings import ROOT, Settings
 
@@ -69,12 +69,19 @@ def create_app(settings=None, connection=None):
         supported = zone == 1
         parameters = (VOLUME, *CURRENT_INPUT_PARAMETERS.values()) if supported else (VOLUME,)
         parameter_address = ParameterAddress(zone=zone)
+        power_parameter = ZONE_POWER_PARAMETERS.get(zone)
+        realtime_address = ParameterAddress(block="realtime", zone=None)
+        power = None
         readings = {parameter.name: None for parameter in parameters}
         if not settings.dry_run:
             def complete(response):
-                return all(reading is not None for reading in parameter_address.read_many(parameters, response).values())
+                return (all(reading is not None for reading in parameter_address.read_many(parameters, response).values())
+                        and (power_parameter is None or realtime_address.read(power_parameter, response) is not None))
             try:
-                response = connection.query(parameter_address.get_many(parameters, settings.device_address), complete)
+                # Read both blocks under one lock, retaining replies from both.
+                power_packet = realtime_address.get(power_parameter, settings.device_address) if power_parameter else None
+                response = connection.query(parameter_address.get_many(parameters, settings.device_address), complete,
+                                            before=power_packet)
             except SerialReplyTimeout as error:
                 response = error.response
             except TimeoutError:
@@ -85,10 +92,13 @@ def create_app(settings=None, connection=None):
                 app.logger.exception("Status transaction failed")
                 return jsonify(error="Serial connection unavailable. Check the adapter, port and permissions."), 503
             readings = parameter_address.read_many(parameters, response)
-        complete_reading = not settings.dry_run and all(reading is not None for reading in readings.values())
+            if power_parameter:
+                power = realtime_address.read(power_parameter, response)
+        complete_reading = (not settings.dry_run and all(reading is not None for reading in readings.values())
+                            and (power_parameter is None or power is not None))
         return jsonify(zone=zone, dry_run=settings.dry_run, volume=readings.pop("volume"),
                        current_input=readings, current_input_supported=supported,
-                       complete=complete_reading)
+                       power=power, power_supported=power_parameter is not None, complete=complete_reading)
 
     @app.route("/api/volume", methods=["GET", "POST"])
     def volume():

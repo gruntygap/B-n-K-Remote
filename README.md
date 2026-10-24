@@ -22,10 +22,14 @@ Surround command 2 retains both model-specific meanings. Rear delay is shown
 for non-Pro Logic; the PDF gives a 16-30 ms Pro Logic range without an exact
 raw-value mapping, so the display notes that distinction.
 
+The top indicator shows the selected zone's reported power as On, Off or Unknown
+(Preview without a receiver). Power is read from Appendix D realtime parameter
+`13` for Zone 1 or `14` for Zone 2; Note 14 defines `0` as Off and `1` as On.
+
 The existing 42 Unit Parameters, packet builders and command-line tools remain
-available. The LCD still shows the last IR command; actual power and selected
-input are not queried. An IR send means bytes were written, not that the receiver
-acknowledged or acted on them.
+available. The LCD still shows the last IR command; the selected input is not
+queried. An IR send means bytes were written, not that the receiver acknowledged
+or acted on them.
 
 The project targets a B&K AVR507 S2 via a USB serial-to-RJ45 RS-232 adapter.
 The catalogs are transcribed from the included CT610/310/600 protocol appendices;
@@ -128,6 +132,11 @@ IR volume buttons remain available to preview commands.
 The UI polls `GET /api/status?zone=1`, which combines volume and the seven
 current-input aliases in one request to the receiver. `ParameterAddress.get_many`
 and `read_many` handle batched requests and replies split across serial frames.
+The same serial transaction also sends `(00,G,R,13;checksum)` for Zone 1 power
+or `(00,G,R,14;checksum)` for Zone 2. Power is confirmed only by a matching
+realtime reply; silence does not imply Off. If a sleeping receiver replies only
+with power Off, that state is retained even without preset data. Undocumented
+zones have unknown power rather than a guessed identifier.
 Partial replies retain valid readings and return null for missing fields with
 `complete: false`. Preview mode returns no fabricated values. Polls and writes
 share the frontend request coordination and the backend serial lock.

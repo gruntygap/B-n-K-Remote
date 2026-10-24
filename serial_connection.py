@@ -30,8 +30,8 @@ class SerialConnection:
     def query(self, packet, accepts, before=None):
         """Read past echoes/updates until the requested state arrives.
 
-        An optional set and its readback share one lock, so another browser
-        cannot interleave a write between them. Writes are never retried.
+        An optional preceding packet (a set or companion query) shares the
+        same lock and reply buffer. Writes are never retried.
         """
         return self._exchange(packet, accepts, before)
 
