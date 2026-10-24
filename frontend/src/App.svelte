@@ -1,10 +1,14 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import RemoteKey from './RemoteKey.svelte';
+  import VolumeDial from './VolumeDial.svelte';
+  import { volumeLabel } from './volume.js';
 
   type Command = { name: string; code: string; description: string };
-  type Config = { commands: Command[]; zones: number[]; default_zone: number; dry_run: boolean };
+  type Parameter = { name: string; code: string; kind: string; minimum: number; maximum: number; offset: number };
+  type Config = { commands: Command[]; zones: number[]; default_zone: number; dry_run: boolean; parameters: Parameter[] };
+  type Reading = { raw: number; value: number | null; unit: string; label: string | null };
   let config = $state<Config | null>(null);
   let zone = $state(1);
   let busy = $state(false);
@@ -15,7 +19,83 @@
   let advancedCommand = $state('power_toggle');
   let search = $state('');
   let filtered = $derived(config?.commands.filter(c => `${c.name} ${c.description} ${c.code}`.toLowerCase().includes(search.toLowerCase())) ?? []);
-  let disabled = $derived(!config || busy);
+  let volume = $state<Reading | null>(null);
+  let volumeStatus = $state('Reading receiver…');
+  let volumeWriting = $state(false);
+  let disabled = $derived(!config || busy || volumeWriting);
+  let volumeParameter = $derived(config?.parameters.find(p => p.name === 'volume'));
+  let volumeRead: Promise<void> | null = null;
+  let pendingVolume: number | null = null;
+  let volumeTimer: ReturnType<typeof setTimeout> | undefined;
+  let mounted = false;
+
+  async function refreshVolume() {
+    if (!mounted || !config || config.dry_run || busy || volumeWriting || volumeRead || document.hidden) return;
+    const requestedZone = zone;
+    volumeRead = (async () => {
+      try {
+        const result = await api(`/api/volume?zone=${requestedZone}`);
+        if (zone !== requestedZone || !mounted) return;
+        volume = result.volume;
+        volumeStatus = volume ? 'Live · turn to adjust' : 'Volume unavailable';
+      } catch {
+        if (zone !== requestedZone || !mounted) return;
+        volume = null;
+        volumeStatus = 'No volume reply';
+      }
+    })();
+    try { await volumeRead; } finally { volumeRead = null; }
+  }
+
+  function changeVolume(raw: number) {
+    if (!mounted || !config || config.dry_run || busy || !volume) return;
+    pendingVolume = raw;
+    if (!volumeWriting && !volumeTimer) volumeTimer = setTimeout(() => { volumeTimer = undefined; void writeVolume(); }, 100);
+  }
+
+  async function writeVolume() {
+    if (volumeWriting || busy || pendingVolume === null || !mounted) return;
+    volumeWriting = true;
+    const requestedZone = zone;
+    try {
+      await volumeRead;
+      while (mounted && pendingVolume !== null && zone === requestedZone) {
+        const raw = pendingVolume;
+        pendingVolume = null;
+        volumeStatus = 'Adjusting…';
+        const result = await api('/api/volume', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ zone: requestedZone, raw }),
+        });
+        if (!mounted || zone !== requestedZone) break;
+        volume = result.volume;
+        volumeStatus = volume ? 'Live · turn to adjust' : 'Volume unavailable';
+        message = volume ? `Volume: ${volumeLabel(volume.raw, volumeParameter?.offset)} · zone ${zone}` : 'Volume unavailable';
+        error = false;
+      }
+    } catch (cause) {
+      volume = null;
+      volumeStatus = 'No volume reply';
+      message = cause instanceof Error ? cause.message : 'Volume unavailable';
+      error = true;
+    } finally {
+      pendingVolume = null;
+      volumeWriting = false;
+    }
+  }
+
+  $effect(() => {
+    const currentZone = zone;
+    const currentConfig = config;
+    untrack(() => {
+      pendingVolume = null;
+      clearTimeout(volumeTimer);
+      volumeTimer = undefined;
+      volume = null;
+      volumeStatus = currentConfig?.dry_run ? 'Preview · no live volume' : 'Reading receiver…';
+      if (currentConfig && currentZone) void refreshVolume();
+    });
+  });
 
   $effect(() => {
     if (filtered.length && !filtered.some(c => c.name === advancedCommand)) {
@@ -49,12 +129,16 @@
   }
 
   async function send(command: string) {
-    if (!config || busy) return;
+    if (!config || busy || volumeWriting) return;
+    pendingVolume = null;
+    clearTimeout(volumeTimer);
+    volumeTimer = undefined;
     const description = config.commands.find(c => c.name === command)?.description ?? command;
     busy = true;
     error = false;
     message = `Sending ${description.toLowerCase()}…`;
     try {
+      await volumeRead;
       const result = await api('/api/ir', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command, zone }),
@@ -65,10 +149,20 @@
       error = true;
       message = cause instanceof Error && cause.name !== 'AbortError'
         ? cause.message : 'Connection interrupted. Check the receiver before sending again.';
-    } finally { busy = false; }
+    } finally { busy = false; void refreshVolume(); }
   }
 
-  onMount(() => { void loadRemote(); });
+  onMount(() => {
+    mounted = true;
+    void loadRemote();
+    const interval = setInterval(() => { void refreshVolume(); }, 1000);
+    return () => {
+      mounted = false;
+      pendingVolume = null;
+      clearInterval(interval);
+      clearTimeout(volumeTimer);
+    };
+  });
 </script>
 
 <div class="page">
@@ -78,6 +172,10 @@
 
       <div class="display">
         <div class="display-meta"><span>ZONE {String(zone).padStart(2, '0')}</span><span>{config?.dry_run ? 'PREVIEW' : 'SERIAL REMOTE'}</span></div>
+        <div class="display-volume" aria-label="Receiver volume">
+          <span>VOLUME</span>
+          <strong>{volume ? volumeLabel(volume.raw, volumeParameter?.offset) : config?.dry_run ? 'Preview' : 'Unavailable'}</strong>
+        </div>
         <div class="display-title">{lastCommand}</div>
         <div class="display-bottom"><span class="display-bars" aria-hidden="true">▂ ▄ ▆ ▄ ▂</span><span>LAST COMMAND / {busy ? 'SENDING' : 'READY'}</span></div>
       </div>
@@ -93,6 +191,7 @@
       </section>
 
       <div class="control-center">
+        <div class="volume-controls">
         <section class="rocker" aria-label="Volume">
           <span class="section-label">VOLUME</span>
           <div class="rocker-body">
@@ -101,6 +200,9 @@
             <RemoteKey command="volume_down" label="Volume down" icon="minus" variant="volume" {disabled} onpress={send} />
           </div>
         </section>
+        <VolumeDial raw={volume?.raw ?? null} disabled={!config || config.dry_run || busy || !volume}
+          status={volumeStatus} maximum={volumeParameter?.maximum} offset={volumeParameter?.offset} onchange={changeVolume} />
+        </div>
         <section class="navigation" aria-label="Menu navigation">
           <span class="section-label">NAVIGATE</span>
           <div class="dpad">

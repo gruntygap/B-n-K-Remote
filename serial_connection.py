@@ -18,6 +18,17 @@ class SerialConnection:
         self._lock = threading.Lock()
 
     def send(self, packet):
+        return self._exchange(packet)
+
+    def query(self, packet, accepts, before=None):
+        """Read past echoes/updates until the requested state arrives.
+
+        An optional set and its readback share one lock, so another browser
+        cannot interleave a write between them. Writes are never retried.
+        """
+        return self._exchange(packet, accepts, before)
+
+    def _exchange(self, packet, accepts=None, before=None):
         # Reject excess requests instead of building a queue of delayed presses.
         if not self._lock.acquire(blocking=False):
             raise SerialBusyError("Receiver is busy. Try again.")
@@ -36,13 +47,26 @@ class SerialConnection:
                     xonxoff=False, rtscts=False, dsrdtr=False,
                 )
                 time.sleep(0.05)
-            # Discard old asynchronous feedback; returned bytes are diagnostic
-            # only and are not interpreted as acknowledgement or receiver state.
+            # Start a fresh transaction; unsolicited feedback from before this
+            # request cannot confirm a new setting.
             self._port.reset_input_buffer()
+            if before is not None:
+                written = self._port.write(before)
+                if written != len(before):
+                    raise serial.SerialException("Incomplete serial write")
             written = self._port.write(packet)
             if written != len(packet):
                 raise serial.SerialException("Incomplete serial write")
-            return self._port.read_until(b")", size=4096)
+            if accepts is None:
+                return self._port.read_until(b")", size=4096)
+            deadline = time.monotonic() + max(0.5, self.settings.serial_timeout)
+            response = b""
+            while len(response) < 4096 and time.monotonic() < deadline:
+                chunk = self._port.read_until(b")", size=4096 - len(response))
+                response += chunk
+                if accepts(response):
+                    return response
+            raise TimeoutError("No matching receiver reply")
         except (serial.SerialException, OSError):
             self._close_port()
             # Never retry a write automatically: the receiver may have acted.

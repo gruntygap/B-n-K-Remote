@@ -5,10 +5,18 @@ frontend sized for an iPhone. Physical-style controls cover power, volume, menu
 navigation, inputs, tuner, tone and the number pad. All 76 Appendix F IR commands
 are available in the searchable **All IR commands** drawer.
 
+The volume dial beside the volume buttons supports touch rotation and keyboard
+arrows (Page Up/Down adjust five steps). It polls the selected zone once per
+second while visible and reads the receiver back after dial changes and IR
+commands. Touching the dial does not jump the volume. Fast rotations combine
+pending changes into the latest requested setting instead of queuing old moves.
+The dial shows the live reading in dB, or an unavailable state when there is no
+matching reply. During rotation, its caption distinguishes live volume from the
+requested setting.
+
 The existing 42 Unit Parameters, packet builders and command-line tools remain
-available. The website currently sends IR commands; it does not query or display
-the receiver's actual power, volume or selected input. Its display shows the last
-command sent. A successful send means bytes were written, not that the receiver
+available. The LCD still shows the last IR command; actual power and selected
+input are not queried. An IR send means bytes were written, not that the receiver
 acknowledged or acted on them.
 
 The project targets a B&K AVR507 S2 via a USB serial-to-RJ45 RS-232 adapter.
@@ -76,6 +84,37 @@ Vite are not used at runtime. You may build on another computer and copy
 Pi. Run one server process per serial adapter. The shared connection opens on the
 first command and stays open; a lock prevents interleaved writes. Busy requests
 are rejected rather than queued, and failed writes are never retried automatically.
+Opening the web remote now queries volume and opens the adapter; loading only
+the `/api/remote` catalog does not transmit anything.
+
+## Parameters and live volume
+
+`parameters.py` defines `Parameter` metadata (identifier, wire type, bounds,
+choices, unit, scale/offset and special values) separately from `ParameterAddress`
+(block, zone and preset). This supports text, integer, boolean, enum and bitmask
+values, and preset, system, realtime and unit blocks. A reading retains `raw`
+alongside the converted `value`, `unit` and `label`. For example, volume raw
+`0x38` is `{raw: 56, value: -40, unit: "dB", label: null}`; raw zero is mute,
+with a null numeric value. The initial common preset catalog covers title,
+volume, balance, tuner band and FM mode. It is not a complete model catalog.
+Parameters whose meanings depend on model, zone, tuning region or surround mode
+need their own definitions/conversion context; identifier alone is not a key.
+
+Volume follows the included Series I appendix, pages 6-8: preset parameter `01`,
+with `FF` selecting the live working preset. Note 1 defines `00` as mute and
+`01..6F` as -95..+15 dB (`raw - 96`). Reads use `(00,G,P1=FF,1;checksum)`;
+dial writes use `(00,S,P1=FF,1=value;checksum)` followed by a read under the same
+serial lock. Stored presets are not modified. Configure the receiver's RS-232
+port and receive/transmit settings to permit replies; the dedicated adapter is
+assumed to connect to one receiver. Compatibility still depends on receiver model.
+
+`GET /api/volume?zone=1` returns the reported reading. `POST /api/volume` accepts
+`{"zone": 1, "raw": 56}` and returns actual readback rather than echoing the target.
+Echoes, other zones/presets, invalid values and bad optional checksums do not
+count as a reading. A missing matching reply returns 504; serial contention
+returns 429. Reads and writes are bounded and failed writes are not retried.
+Preview mode returns no live volume and leaves the dial inactive; the original
+IR volume buttons remain available to preview commands.
 
 ## Raspberry Pi startup
 
@@ -143,11 +182,14 @@ build always uses its own origin and needs no proxy or separate frontend port.
 cd frontend
 npm run check
 npm run build
+node --test src/volume.test.js
 ```
 
 Tests use a fake serial adapter and cover configuration, all IR API commands,
 input validation, concurrent presses, disconnect/reconnect behavior, preview mode
-and CLI compatibility. Actual receiver behavior still needs hardware verification.
+and CLI compatibility. Volume tests cover Note 1 conversions, typed parameter
+validation, reply filtering/checksums, atomic set/readback, timeouts and dial
+rotation across the angle seam. Actual receiver behavior still needs hardware verification.
 
 ## License
 

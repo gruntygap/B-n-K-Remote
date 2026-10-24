@@ -9,6 +9,7 @@ import serial
 from werkzeug.exceptions import HTTPException
 
 from control import IR_COMMANDS, build_ir_command
+from parameters import PRESET_PARAMETERS, ParameterAddress, VOLUME
 from serial_connection import SerialBusyError, SerialConnection
 from settings import ROOT, Settings
 
@@ -49,7 +50,55 @@ def create_app(settings=None, connection=None):
                       for name, c in IR_COMMANDS.items()],
             zones=list(settings.remote_zones), default_zone=settings.default_zone,
             dry_run=settings.dry_run,
+            parameters=[parameter.metadata() for parameter in PRESET_PARAMETERS.values()],
         )
+
+    @app.route("/api/volume", methods=["GET", "POST"])
+    def volume():
+        origin = request.headers.get("Origin")
+        if (request.headers.get("Sec-Fetch-Site") == "cross-site"
+                or (origin and urlsplit(origin).netloc != request.host)):
+            return jsonify(error="Use the remote from this server's website."), 403
+        value = None
+        if request.method == "POST":
+            if not request.is_json:
+                return jsonify(error="A JSON volume setting is required."), 415
+            data = request.get_json()
+            if not isinstance(data, dict) or set(data) - {"zone", "raw"} or "raw" not in data:
+                return jsonify(error="Supply raw volume and an optional zone."), 400
+            zone = data.get("zone", settings.default_zone)
+            value = data["raw"]
+            try:
+                VOLUME.validate(value)
+            except ValueError as error:
+                return jsonify(error=str(error)), 400
+        else:
+            try:
+                zone = int(request.args.get("zone", str(settings.default_zone)))
+            except ValueError:
+                return jsonify(error="Choose a configured zone."), 400
+        if type(zone) is not int or zone not in settings.remote_zones:
+            return jsonify(error="Choose a configured zone."), 400
+        parameter_address = ParameterAddress(zone=zone)
+        before = parameter_address.set(VOLUME, value, settings.device_address) if value is not None else None
+        packet = parameter_address.get(VOLUME, settings.device_address)
+        if settings.dry_run:
+            # Preview has no live receiver state; do not invent a reading.
+            return jsonify(zone=zone, dry_run=True, volume=None, packet=(before or packet).decode("ascii"))
+        try:
+            response = connection.query(packet, parameter_address.read_volume, before=before)
+            reading = parameter_address.read_volume(response)
+            if reading is None:
+                raise TimeoutError("No matching receiver reply")
+        except SerialBusyError as error:
+            return jsonify(error=str(error)), 429
+        except TimeoutError:
+            return jsonify(error="No volume reply from the receiver. Check its RS-232 settings.",
+                           zone=zone, volume=None), 504
+        except (serial.SerialException, OSError):
+            app.logger.exception("Volume transaction failed")
+            return jsonify(error="Serial connection unavailable. Check the adapter, port and permissions."), 503
+        return jsonify(zone=zone, dry_run=False, volume=reading)
 
     @app.post("/api/ir")
     def ir():
