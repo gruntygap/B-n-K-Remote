@@ -35,7 +35,7 @@ class SerialConnection:
                     write_timeout=self.settings.serial_write_timeout,
                     xonxoff=False, rtscts=False, dsrdtr=False,
                 )
-                time.sleep(0.2)
+                time.sleep(0.05)
             # Discard old asynchronous feedback; returned bytes are diagnostic
             # only and are not interpreted as acknowledgement or receiver state.
             self._port.reset_input_buffer()
