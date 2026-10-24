@@ -10,6 +10,13 @@ class SerialBusyError(Exception):
     pass
 
 
+class SerialReplyTimeout(TimeoutError):
+    """A bounded read ended; callers may still inspect validated partial state."""
+    def __init__(self, response):
+        super().__init__("No complete matching receiver reply")
+        self.response = response
+
+
 class SerialConnection:
     def __init__(self, settings, factory=serial.Serial):
         self.settings = settings
@@ -66,7 +73,10 @@ class SerialConnection:
                 response += chunk
                 if accepts(response):
                     return response
-            raise TimeoutError("No matching receiver reply")
+            raise SerialReplyTimeout(response)
+        except SerialReplyTimeout:
+            # A partial/unsupported parameter reply does not disconnect the adapter.
+            raise
         except (serial.SerialException, OSError):
             self._close_port()
             # Never retry a write automatically: the receiver may have acted.

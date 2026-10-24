@@ -94,6 +94,27 @@ PRESET_PARAMETERS = {
 }
 VOLUME = PRESET_PARAMETERS["volume"]
 
+# Appendix A, current input aliases (Note 13): these apply to Zone 1 only.
+# Note 9 gives two different meanings for command 2 depending on model; keep
+# both rather than silently identifying an unconfigured model.
+CURRENT_INPUT_PARAMETERS = {
+    "surround_mode": Parameter("surround_mode", 0xF3, "Surround mode", kind="enum", maximum=6,
+        choices=((0, "Surround"), (1, "3 Hall"), (2, "Stereo 3"), (3, "Stereo Hall"),
+                 (4, "Stereo Front/Rear"), (5, "Stereo"), (6, "Stereo Lt/Rt")), note="Note 8"),
+    "surround_command": Parameter("surround_command", 0xF4, "Surround command", kind="enum", maximum=3,
+        choices=((0, "Auto"), (1, "Lock Analog"), (2, "Lock DTS / AC3 compression"), (3, "AC3 compression")),
+        note="Note 9: command 2 is Lock DTS on REF20/AVR202, AC3 compression on REF10/AVR101"),
+    "center_level": Parameter("center_level", 0xF5, "Center level", maximum=0x30,
+        unit="dB", scale=0.5, offset=-12, note="Note 2"),
+    "center_delay": Parameter("center_delay", 0xF6, "Center delay", maximum=5, unit="ms", note="Note 10"),
+    "rear_level": Parameter("rear_level", 0xF7, "Rear level", maximum=0x30,
+        unit="dB", scale=0.5, offset=-12, note="Note 2"),
+    "rear_delay": Parameter("rear_delay", 0xF8, "Rear delay", maximum=0x0F, unit="ms",
+        note="Note 11: raw 0-F is 0-15 ms outside Pro Logic; the manual specifies 16-30 ms in Pro Logic without an exact mapping"),
+    "sub_level": Parameter("sub_level", 0xF9, "Sub level", maximum=0x30,
+        unit="dB", scale=0.5, offset=-12, note="Note 2"),
+}
+
 
 @dataclass(frozen=True)
 class ParameterAddress:
@@ -118,7 +139,18 @@ class ParameterAddress:
         return f"P{self.zone:X}={self.preset:X}"
 
     def get(self, parameter: Parameter, address=0):
-        return build_bk_command(f"{address:02X},G,{self.selector()},{parameter.code:X}")
+        return self.get_many((parameter,), address)
+
+    def get_many(self, parameters, address=0):
+        identifiers = ",".join(f"{parameter.code:X}" for parameter in parameters)
+        if not identifiers:
+            raise ValueError("Choose at least one parameter")
+        return build_bk_command(f"{address:02X},G,{self.selector()},{identifiers}")
+
+    def read_many(self, parameters, response):
+        # A receiver may return all parameters in one frame or split replies
+        # across multiple frames. Never stop on an echo or a partial batch.
+        return {parameter.name: self.read(parameter, response) for parameter in parameters}
 
     def set(self, parameter: Parameter, raw, address=0):
         if self.block in {"realtime", "unit"}:

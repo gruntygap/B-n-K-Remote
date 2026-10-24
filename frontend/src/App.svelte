@@ -3,11 +3,12 @@
   import Icon from './Icon.svelte';
   import RemoteKey from './RemoteKey.svelte';
   import VolumeDial from './VolumeDial.svelte';
+  import InputDisplay from './InputDisplay.svelte';
   import { volumeLabel } from './volume.js';
 
   type Command = { name: string; code: string; description: string };
-  type Parameter = { name: string; code: string; kind: string; minimum: number; maximum: number; offset: number };
-  type Config = { commands: Command[]; zones: number[]; default_zone: number; dry_run: boolean; parameters: Parameter[] };
+  type Parameter = { name: string; code: string; description: string; note: string; kind: string; minimum: number; maximum: number; offset: number };
+  type Config = { commands: Command[]; zones: number[]; default_zone: number; dry_run: boolean; parameters: Parameter[]; current_input_parameters: Parameter[] };
   type Reading = { raw: number; value: number | null; unit: string; label: string | null };
   let config = $state<Config | null>(null);
   let zone = $state(1);
@@ -21,30 +22,38 @@
   let filtered = $derived(config?.commands.filter(c => `${c.name} ${c.description} ${c.code}`.toLowerCase().includes(search.toLowerCase())) ?? []);
   let volume = $state<Reading | null>(null);
   let volumeStatus = $state('Reading receiver…');
+  let currentInput = $state<Record<string, Reading | null>>({});
+  let inputStatus = $state('Reading receiver…');
   let volumeWriting = $state(false);
   let disabled = $derived(!config || busy || volumeWriting);
   let volumeParameter = $derived(config?.parameters.find(p => p.name === 'volume'));
-  let volumeRead: Promise<void> | null = null;
+  let statusRead: Promise<void> | null = null;
   let pendingVolume: number | null = null;
   let volumeTimer: ReturnType<typeof setTimeout> | undefined;
   let mounted = false;
 
-  async function refreshVolume() {
-    if (!mounted || !config || config.dry_run || busy || volumeWriting || volumeRead || document.hidden) return;
+  async function refreshStatus() {
+    if (!mounted || !config || config.dry_run || busy || volumeWriting || statusRead || document.hidden) return;
     const requestedZone = zone;
-    volumeRead = (async () => {
+    statusRead = (async () => {
       try {
-        const result = await api(`/api/volume?zone=${requestedZone}`);
+        const result = await api(`/api/status?zone=${requestedZone}`);
         if (zone !== requestedZone || !mounted) return;
         volume = result.volume;
         volumeStatus = volume ? 'Live · turn to adjust' : 'Volume unavailable';
+        currentInput = result.current_input;
+        const available = Object.values(currentInput).filter(Boolean).length;
+        inputStatus = !result.current_input_supported ? 'Available in Zone 1 only'
+          : available === 7 ? 'Live' : available ? 'Partial reply' : 'No parameter reply';
       } catch {
         if (zone !== requestedZone || !mounted) return;
         volume = null;
         volumeStatus = 'No volume reply';
+        currentInput = {};
+        inputStatus = 'No parameter reply';
       }
     })();
-    try { await volumeRead; } finally { volumeRead = null; }
+    try { await statusRead; } finally { statusRead = null; }
   }
 
   function changeVolume(raw: number) {
@@ -58,7 +67,7 @@
     volumeWriting = true;
     const requestedZone = zone;
     try {
-      await volumeRead;
+      await statusRead;
       while (mounted && pendingVolume !== null && zone === requestedZone) {
         const raw = pendingVolume;
         pendingVolume = null;
@@ -93,7 +102,9 @@
       volumeTimer = undefined;
       volume = null;
       volumeStatus = currentConfig?.dry_run ? 'Preview · no live volume' : 'Reading receiver…';
-      if (currentConfig && currentZone) void refreshVolume();
+      currentInput = {};
+      inputStatus = currentConfig?.dry_run ? 'Preview · no live values' : 'Reading receiver…';
+      if (currentConfig && currentZone) void refreshStatus();
     });
   });
 
@@ -138,7 +149,7 @@
     error = false;
     message = `Sending ${description.toLowerCase()}…`;
     try {
-      await volumeRead;
+      await statusRead;
       const result = await api('/api/ir', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command, zone }),
@@ -149,13 +160,13 @@
       error = true;
       message = cause instanceof Error && cause.name !== 'AbortError'
         ? cause.message : 'Connection interrupted. Check the receiver before sending again.';
-    } finally { busy = false; void refreshVolume(); }
+    } finally { busy = false; void refreshStatus(); }
   }
 
   onMount(() => {
     mounted = true;
     void loadRemote();
-    const interval = setInterval(() => { void refreshVolume(); }, 1000);
+    const interval = setInterval(() => { void refreshStatus(); }, 1000);
     return () => {
       mounted = false;
       pendingVolume = null;
@@ -203,6 +214,8 @@
         <VolumeDial raw={volume?.raw ?? null} disabled={!config || config.dry_run || busy || !volume}
           status={volumeStatus} maximum={volumeParameter?.maximum} offset={volumeParameter?.offset} onchange={changeVolume} />
         </div>
+        <InputDisplay parameters={config?.current_input_parameters ?? []} readings={currentInput}
+          status={inputStatus} supported={zone === 1} />
         <section class="navigation" aria-label="Menu navigation">
           <span class="section-label">NAVIGATE</span>
           <div class="dpad">

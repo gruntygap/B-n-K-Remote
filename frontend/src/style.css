@@ -172,6 +172,40 @@ svg {
   font-size: 13px;
   line-height: 1;
 }
+.input-display {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+.input-readings {
+  margin: 12px 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.input-reading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid #38472b22;
+}
+.input-reading dt,
+.input-reading dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.input-reading dd {
+  text-align: right;
+  font-weight: 600;
+}
+.input-display-note,
+.input-display-status {
+  font-size: 9px;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+.input-display-note {
+  opacity: 0.8;
+}
 .zone-row {
   display: flex;
   align-items: center;

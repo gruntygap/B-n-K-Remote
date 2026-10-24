@@ -14,6 +14,14 @@ The dial shows the live reading in dB, or an unavailable state when there is no
 matching reply. During rotation, its caption distinguishes live volume from the
 requested setting.
 
+A second LCD below the wheel shows the current input's surround mode, surround
+command, center/rear/sub levels and center/rear delays. Levels use half-decibel
+steps from -12 to +12 dB. These `F3..F9` aliases are documented for Zone 1 only;
+Zone 2 displays an availability message. Missing or invalid replies show dashes.
+Surround command 2 retains both model-specific meanings. Rear delay is shown
+for non-Pro Logic; the PDF gives a 16-30 ms Pro Logic range without an exact
+raw-value mapping, so the display notes that distinction.
+
 The existing 42 Unit Parameters, packet builders and command-line tools remain
 available. The LCD still shows the last IR command; actual power and selected
 input are not queried. An IR send means bytes were written, not that the receiver
@@ -99,6 +107,7 @@ with a null numeric value. The initial common preset catalog covers title,
 volume, balance, tuner band and FM mode. It is not a complete model catalog.
 Parameters whose meanings depend on model, zone, tuning region or surround mode
 need their own definitions/conversion context; identifier alone is not a key.
+`CURRENT_INPUT_PARAMETERS` holds the separate Zone 1 alias definitions.
 
 Volume follows the included Series I appendix, pages 6-8: preset parameter `01`,
 with `FF` selecting the live working preset. Note 1 defines `00` as mute and
@@ -115,6 +124,13 @@ count as a reading. A missing matching reply returns 504; serial contention
 returns 429. Reads and writes are bounded and failed writes are not retried.
 Preview mode returns no live volume and leaves the dial inactive; the original
 IR volume buttons remain available to preview commands.
+
+The UI polls `GET /api/status?zone=1`, which combines volume and the seven
+current-input aliases in one request to the receiver. `ParameterAddress.get_many`
+and `read_many` handle batched requests and replies split across serial frames.
+Partial replies retain valid readings and return null for missing fields with
+`complete: false`. Preview mode returns no fabricated values. Polls and writes
+share the frontend request coordination and the backend serial lock.
 
 ## Raspberry Pi startup
 
@@ -182,7 +198,7 @@ build always uses its own origin and needs no proxy or separate frontend port.
 cd frontend
 npm run check
 npm run build
-node --test src/volume.test.js
+node --test src/volume.test.js src/parameter-display.test.js
 ```
 
 Tests use a fake serial adapter and cover configuration, all IR API commands,

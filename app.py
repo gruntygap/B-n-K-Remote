@@ -9,8 +9,8 @@ import serial
 from werkzeug.exceptions import HTTPException
 
 from control import IR_COMMANDS, build_ir_command
-from parameters import PRESET_PARAMETERS, ParameterAddress, VOLUME
-from serial_connection import SerialBusyError, SerialConnection
+from parameters import CURRENT_INPUT_PARAMETERS, PRESET_PARAMETERS, ParameterAddress, VOLUME
+from serial_connection import SerialBusyError, SerialConnection, SerialReplyTimeout
 from settings import ROOT, Settings
 
 
@@ -51,7 +51,44 @@ def create_app(settings=None, connection=None):
             zones=list(settings.remote_zones), default_zone=settings.default_zone,
             dry_run=settings.dry_run,
             parameters=[parameter.metadata() for parameter in PRESET_PARAMETERS.values()],
+            current_input_parameters=[parameter.metadata() for parameter in CURRENT_INPUT_PARAMETERS.values()],
         )
+
+    @app.get("/api/status")
+    def status():
+        origin = request.headers.get("Origin")
+        if (request.headers.get("Sec-Fetch-Site") == "cross-site"
+                or (origin and urlsplit(origin).netloc != request.host)):
+            return jsonify(error="Use the remote from this server's website."), 403
+        try:
+            zone = int(request.args.get("zone", str(settings.default_zone)))
+        except ValueError:
+            return jsonify(error="Choose a configured zone."), 400
+        if zone not in settings.remote_zones:
+            return jsonify(error="Choose a configured zone."), 400
+        supported = zone == 1
+        parameters = (VOLUME, *CURRENT_INPUT_PARAMETERS.values()) if supported else (VOLUME,)
+        parameter_address = ParameterAddress(zone=zone)
+        readings = {parameter.name: None for parameter in parameters}
+        if not settings.dry_run:
+            def complete(response):
+                return all(reading is not None for reading in parameter_address.read_many(parameters, response).values())
+            try:
+                response = connection.query(parameter_address.get_many(parameters, settings.device_address), complete)
+            except SerialReplyTimeout as error:
+                response = error.response
+            except TimeoutError:
+                response = b""
+            except SerialBusyError as error:
+                return jsonify(error=str(error)), 429
+            except (serial.SerialException, OSError):
+                app.logger.exception("Status transaction failed")
+                return jsonify(error="Serial connection unavailable. Check the adapter, port and permissions."), 503
+            readings = parameter_address.read_many(parameters, response)
+        complete_reading = not settings.dry_run and all(reading is not None for reading in readings.values())
+        return jsonify(zone=zone, dry_run=settings.dry_run, volume=readings.pop("volume"),
+                       current_input=readings, current_input_supported=supported,
+                       complete=complete_reading)
 
     @app.route("/api/volume", methods=["GET", "POST"])
     def volume():
