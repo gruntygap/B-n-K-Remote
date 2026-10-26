@@ -63,7 +63,7 @@
   function changeVolume(raw: number) {
     if (!mounted || !config || config.dry_run || busy || !volume) return;
     pendingVolume = raw;
-    if (!volumeWriting && !volumeTimer) volumeTimer = setTimeout(() => { volumeTimer = undefined; void writeVolume(); }, 100);
+    if (!volumeWriting && !volumeTimer) volumeTimer = setTimeout(() => { volumeTimer = undefined; void writeVolume(); }, 50);
   }
 
   async function writeVolume() {
@@ -121,7 +121,7 @@
 
   async function api(path: string, options: RequestInit = {}) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
+    const timer = setTimeout(() => controller.abort(), 10000);
     try {
       const response = await fetch(path, { ...options, signal: controller.signal });
       const data = await response.json();
@@ -171,7 +171,7 @@
   onMount(() => {
     mounted = true;
     void loadRemote();
-    const interval = setInterval(() => { void refreshStatus(); }, 1000);
+    const interval = setInterval(() => { void refreshStatus(); }, 50);
     return () => {
       mounted = false;
       pendingVolume = null;

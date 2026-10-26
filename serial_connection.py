@@ -53,7 +53,6 @@ class SerialConnection:
                     write_timeout=self.settings.serial_write_timeout,
                     xonxoff=False, rtscts=False, dsrdtr=False,
                 )
-                time.sleep(0.05)
             # Start a fresh transaction; unsolicited feedback from before this
             # request cannot confirm a new setting.
             self._port.reset_input_buffer()
