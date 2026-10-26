@@ -171,7 +171,7 @@
   onMount(() => {
     mounted = true;
     void loadRemote();
-    const interval = setInterval(() => { void refreshStatus(); }, 50);
+    const interval = setInterval(() => { void refreshStatus(); }, 1000);
     return () => {
       mounted = false;
       pendingVolume = null;
