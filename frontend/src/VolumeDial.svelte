@@ -44,7 +44,8 @@
     remainder = next.remainder;
     if (next.raw !== draft) {
       draft = next.raw;
-      onchange(next.raw);
+      // For live updating uncomment, and comment onchange within end()
+      // onchange(next.raw);
     }
   }
 
@@ -52,7 +53,10 @@
     if (pointer !== event.pointerId) return;
     const element = event.currentTarget as HTMLDivElement;
     pointer = null;
-    if (element.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId);
+    if (element.hasPointerCapture(event.pointerId)) {
+      onchange(draft as number);
+      element.releasePointerCapture(event.pointerId);
+    }
   }
 
   function key(event: KeyboardEvent) {
