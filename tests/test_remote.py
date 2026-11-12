@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 from contextlib import redirect_stdout
@@ -141,23 +142,115 @@ class SerialTests(unittest.TestCase):
         self.connection.send(b"(next)\r\n")
         self.assertEqual(self.factory.call_count, 2)
 
-    def test_concurrent_press_is_rejected_without_queued_write(self):
+    def test_overlapping_commands_queue_and_keep_their_own_replies(self):
         entered, release = threading.Event(), threading.Event()
-        def block_read(*args, **kwargs):
+
+        def read_reply(*_args, **_kwargs):
             entered.set()
             release.wait(2)
-            return b""
-        self.port.read_until.side_effect = block_read
-        thread = threading.Thread(target=self.connection.send, args=(b"one",))
-        thread.start()
+            packet = self.port.write.call_args.args[0]
+            return b"(" + packet + b"-reply)"
+
+        self.port.read_until.side_effect = read_reply
+        results = {}
+
+        def run(packet):
+            results[packet] = self.connection.query(packet, lambda data, token=packet: token in data)
+
+        first = threading.Thread(target=run, args=(b"alpha",))
+        second = threading.Thread(target=run, args=(b"beta",))
+        first.start()
         try:
             self.assertTrue(entered.wait(1))
-            with self.assertRaises(SerialBusyError):
-                self.connection.send(b"two")
+            second.start()
+            self._wait_until_queued(self.connection)
             self.assertEqual(self.port.write.call_count, 1)
+            self.assertEqual(self.factory.call_count, 1)
         finally:
             release.set()
+        first.join(2)
+        second.join(2)
+        self.assertFalse(first.is_alive() or second.is_alive())
+        self.assertEqual(results[b"alpha"], b"(alpha-reply)")
+        self.assertEqual(results[b"beta"], b"(beta-reply)")
+        self.assertEqual(self.port.write.call_count, 2)
+        self.assertEqual(self.factory.call_count, 1)
+
+    def test_queued_command_cannot_split_set_and_readback(self):
+        entered, release = threading.Event(), threading.Event()
+
+        def read_reply(*_args, **_kwargs):
+            entered.set()
+            release.wait(2)
+            return b"(ok)"
+
+        self.port.read_until.side_effect = read_reply
+        outcome = {}
+
+        def query():
+            outcome["query"] = self.connection.query(b"get", lambda data: True, before=b"set")
+
+        def later():
+            outcome["send"] = self.connection.send(b"later")
+
+        first = threading.Thread(target=query)
+        second = threading.Thread(target=later)
+        first.start()
+        try:
+            self.assertTrue(entered.wait(1))
+            second.start()
+            self._wait_until_queued(self.connection)
+            self.assertEqual([call.args[0] for call in self.port.write.call_args_list], [b"set", b"get"])
+        finally:
+            release.set()
+        first.join(2)
+        second.join(2)
+        self.assertFalse(first.is_alive() or second.is_alive())
+        self.assertEqual(outcome["query"], b"(ok)")
+        self.assertEqual(outcome["send"], b"(ok)")
+        self.assertEqual([call.args[0] for call in self.port.write.call_args_list], [b"set", b"get", b"later"])
+        self.assertEqual(self.factory.call_count, 1)
+
+    def test_full_queue_rejects_without_another_write(self):
+        connection = SerialConnection(Settings(), self.factory, queue_size=1)
+        self.addCleanup(connection.close)
+        entered, release = threading.Event(), threading.Event()
+
+        def block_read(*_args, **_kwargs):
+            entered.set()
+            release.wait(2)
+            return b"(ok)"
+
+        self.port.read_until.side_effect = block_read
+        threads = [threading.Thread(target=connection.send, args=(packet,)) for packet in (b"one", b"two")]
+        threads[0].start()
+        try:
+            self.assertTrue(entered.wait(1))
+            threads[1].start()
+            self._wait_until_queued(connection)
+            with self.assertRaises(SerialBusyError):
+                connection.send(b"three")
+            self.assertEqual(self.port.write.call_count, 1)
+            self.assertEqual(self.factory.call_count, 1)
+        finally:
+            release.set()
+        for thread in threads:
             thread.join(2)
+            self.assertFalse(thread.is_alive())
+
+    def test_http_requests_reuse_one_adapter(self):
+        self.port.read_until.return_value = b"(ok)"
+        client = create_app(Settings(), self.connection).test_client()
+        self.assertEqual(client.post("/api/ir", json={"command": "power_on"}).status_code, 200)
+        self.assertEqual(client.post("/api/ir", json={"command": "mute"}).status_code, 200)
+        self.assertEqual(self.factory.call_count, 1)
+        self.assertEqual(self.port.write.call_count, 2)
+
+    def _wait_until_queued(self, connection):
+        deadline = time.monotonic() + 1
+        while connection._pending.qsize() < 1:
+            self.assertLess(time.monotonic(), deadline, "command was not queued")
+            time.sleep(0.01)
 
     def test_preview_never_opens_adapter(self):
         connection = SerialConnection(replace(Settings(), dry_run=True), self.factory)

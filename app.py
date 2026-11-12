@@ -17,6 +17,7 @@ from settings import ROOT, Settings
 def create_app(settings=None, connection=None):
     settings = settings or Settings.load()
     settings.validate()
+    # One adapter for the life of the process. Requests enqueue; they do not open a port.
     connection = connection or SerialConnection(settings)
     app = Flask(__name__, static_folder=None)
     app.config["MAX_CONTENT_LENGTH"] = 1024
@@ -78,7 +79,7 @@ def create_app(settings=None, connection=None):
                 return (all(reading is not None for reading in parameter_address.read_many(parameters, response).values())
                         and (power_parameter is None or realtime_address.read(power_parameter, response) is not None))
             try:
-                # Read both blocks under one lock, retaining replies from both.
+                # Power and preset reads share one queued exchange and one reply buffer.
                 power_packet = realtime_address.get(power_parameter, settings.device_address) if power_parameter else None
                 response = connection.query(parameter_address.get_many(parameters, settings.device_address), complete,
                                             before=power_packet)
@@ -206,7 +207,7 @@ def main():
     settings = Settings.load()
     app = create_app(settings)
     try:
-        # One process owns the serial adapter; HTTP workers share its lock.
+        # One process owns the adapter; HTTP threads enqueue on its serial queue.
         serve(app, host=settings.web_host, port=settings.web_port, threads=4)
     finally:
         app.extensions["receiver"].close()

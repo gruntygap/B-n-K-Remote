@@ -96,8 +96,10 @@ The Python process serves `frontend/dist` and the API through Waitress. Node and
 Vite are not used at runtime. You may build on another computer and copy
 `frontend/dist/` onto the Pi at the same path, avoiding a Node installation on the
 Pi. Run one server process per serial adapter. The shared connection opens on the
-first command and stays open; a lock prevents interleaved writes. Busy requests
-are rejected rather than queued, and failed writes are never retried automatically.
+first command and stays open; later HTTP requests reuse that adapter. Overlapping
+commands wait in a short queue, and the reply read while a command is on the wire
+is matched back to that command. A full queue rejects the extra command, and
+failed writes are never retried automatically.
 Opening the web remote now queries volume and opens the adapter; loading only
 the `/api/remote` catalog does not transmit anything.
 
@@ -118,15 +120,15 @@ need their own definitions/conversion context; identifier alone is not a key.
 Volume follows the included Series I appendix, pages 6-8: preset parameter `01`,
 with `FF` selecting the live working preset. Note 1 defines `00` as mute and
 `01..6F` as -95..+15 dB (`raw - 96`). Reads use `(00,G,P1=FF,1;checksum)`;
-dial writes use `(00,S,P1=FF,1=value;checksum)` followed by a read under the same
-serial lock. Stored presets are not modified. Configure the receiver's RS-232
+dial writes use `(00,S,P1=FF,1=value;checksum)` followed by a read in the same
+queued transaction. Stored presets are not modified. Configure the receiver's RS-232
 port and receive/transmit settings to permit replies; the dedicated adapter is
 assumed to connect to one receiver. Compatibility still depends on receiver model.
 
 `GET /api/volume?zone=1` returns the reported reading. `POST /api/volume` accepts
 `{"zone": 1, "raw": 56}` and returns actual readback rather than echoing the target.
 Echoes, other zones/presets, invalid values and bad optional checksums do not
-count as a reading. A missing matching reply returns 504; serial contention
+count as a reading. A missing matching reply returns 504; a full command queue
 returns 429. Reads and writes are bounded and failed writes are not retried.
 Preview mode returns no live volume and leaves the dial inactive; the original
 IR volume buttons remain available to preview commands.
@@ -141,7 +143,7 @@ with power Off, that state is retained even without preset data. Undocumented
 zones have unknown power rather than a guessed identifier.
 Partial replies retain valid readings and return null for missing fields with
 `complete: false`. Preview mode returns no fabricated values. Polls and writes
-share the frontend request coordination and the backend serial lock.
+share the frontend request coordination and the backend serial queue.
 
 ## Raspberry Pi startup
 
