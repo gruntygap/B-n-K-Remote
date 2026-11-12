@@ -1,7 +1,9 @@
 """Serve the compiled Svelte remote and a small same-origin IR API."""
 
 import atexit
+import copy
 import logging
+import threading
 from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -14,14 +16,66 @@ from serial_connection import SerialBusyError, SerialConnection, SerialReplyTime
 from settings import ROOT, Settings
 
 
-def create_app(settings=None, connection=None):
+class StatusCache:
+    """Status for each zone, kept until a reported field changes.
+
+    A volume read or write replaces only the volume. An IR press drops the
+    snapshot, because that command does not report the new field value.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._entries = {}
+
+    def get(self, zone):
+        with self._lock:
+            payload = self._entries.get(zone)
+            if payload is None:
+                return None
+            return copy.deepcopy(payload)
+
+    def store(self, zone, payload):
+        with self._lock:
+            self._entries[zone] = copy.deepcopy(payload)
+
+    def update(self, zone, **fields):
+        """Merge fields that status and another endpoint both report."""
+        with self._lock:
+            payload = self._entries.get(zone)
+            if payload is None:
+                return
+            for key, value in fields.items():
+                payload[key] = copy.deepcopy(value)
+            payload["complete"] = status_is_complete(payload)
+
+    def invalidate(self, zone):
+        with self._lock:
+            self._entries.pop(zone, None)
+
+
+def status_is_complete(payload):
+    if payload["dry_run"]:
+        return False
+    if payload["power_supported"] and payload["power"] is None:
+        return False
+    if payload["volume"] is None:
+        return False
+    if payload["current_input_supported"] and any(
+            reading is None for reading in payload["current_input"].values()):
+        return False
+    return True
+
+
+def create_app(settings=None, connection=None, cache=None):
     settings = settings or Settings.load()
     settings.validate()
     # One adapter for the life of the process. Requests enqueue; they do not open a port.
     connection = connection or SerialConnection(settings)
+    cache = cache or StatusCache()
     app = Flask(__name__, static_folder=None)
     app.config["MAX_CONTENT_LENGTH"] = 1024
     app.extensions["receiver"] = connection
+    app.extensions["status_cache"] = cache
     atexit.register(connection.close)
     dist = ROOT / "frontend" / "dist"
 
@@ -72,6 +126,9 @@ def create_app(settings=None, connection=None):
         parameter_address = ParameterAddress(zone=zone)
         power_parameter = ZONE_POWER_PARAMETERS.get(zone)
         realtime_address = ParameterAddress(block="realtime", zone=None)
+        cached = cache.get(zone)
+        if cached is not None:
+            return jsonify(cached)
         power = None
         readings = {parameter.name: None for parameter in parameters}
         if not settings.dry_run:
@@ -95,11 +152,13 @@ def create_app(settings=None, connection=None):
             readings = parameter_address.read_many(parameters, response)
             if power_parameter:
                 power = realtime_address.read(power_parameter, response)
-        complete_reading = (not settings.dry_run and all(reading is not None for reading in readings.values())
-                            and (power_parameter is None or power is not None))
-        return jsonify(zone=zone, dry_run=settings.dry_run, volume=readings.pop("volume"),
-                       current_input=readings, current_input_supported=supported,
-                       power=power, power_supported=power_parameter is not None, complete=complete_reading)
+        payload = {"zone": zone, "dry_run": settings.dry_run, "volume": readings.pop("volume"),
+                   "current_input": readings, "current_input_supported": supported,
+                   "power": power, "power_supported": power_parameter is not None, "complete": False}
+        payload["complete"] = status_is_complete(payload)
+        if not settings.dry_run:
+            cache.store(zone, payload)
+        return jsonify(payload)
 
     @app.route("/api/volume", methods=["GET", "POST"])
     def volume():
@@ -146,6 +205,7 @@ def create_app(settings=None, connection=None):
         except (serial.SerialException, OSError):
             app.logger.exception("Volume transaction failed")
             return jsonify(error="Serial connection unavailable. Check the adapter, port and permissions."), 503
+        cache.update(zone, volume=reading)
         return jsonify(zone=zone, dry_run=False, volume=reading)
 
     @app.post("/api/ir")
@@ -176,6 +236,7 @@ def create_app(settings=None, connection=None):
             app.logger.exception("Serial transaction failed")
             return jsonify(error="Serial connection unavailable. Check the adapter, port and permissions. "
                            "The command was not retried; check the receiver before sending again."), 503
+        cache.invalidate(zone)
         return jsonify(
             command=name, zone=zone, dry_run=settings.dry_run,
             packet=packet.decode("ascii"), response=response.decode("ascii", errors="replace"),

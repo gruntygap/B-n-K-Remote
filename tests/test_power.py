@@ -49,10 +49,9 @@ class PowerTests(unittest.TestCase):
 
     def test_missing_or_other_zone_power_stays_unknown_despite_valid_presets(self):
         connection = Mock()
-        client = create_app(Settings(), connection).test_client()
         for frame in [status_reply(), status_reply() + power_reply(zone=2), status_reply() + power_reply(raw=2)]:
             connection.query.return_value = frame
-            result = client.get('/api/status').json
+            result = create_app(Settings(), connection).test_client().get('/api/status').json
             self.assertIsNone(result['power'])
             self.assertEqual(result['volume']['value'], -40)
             self.assertFalse(result['complete'])

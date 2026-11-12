@@ -1,10 +1,10 @@
 """One serial adapter for the process, with a queue of matched transactions.
 
 HTTP workers enqueue commands. They never open a port. A single worker keeps
-one adapter open and writes the head of the queue; bytes read while that
-command is on the wire are its reply and are not given to anything queued
-behind it. The adapter is opened on the first real exchange and reused until
-the process closes it or the port fails. A failed write is not retried.
+one adapter open and writes each transaction in order; bytes read while that
+command is on the wire are its reply. The adapter is opened on the first real
+exchange and reused until the process closes it or the port fails. A failed
+write is not retried.
 """
 
 import queue
@@ -211,7 +211,7 @@ class SerialConnection:
             if self._closed and (worker is None or not worker.is_alive()):
                 return
             self._closed = True
-        self._stop.set()
+            self._stop.set()
         if worker is not None:
             try:
                 self._pending.put_nowait(None)

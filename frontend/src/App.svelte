@@ -30,6 +30,7 @@
   let disabled = $derived(!config || busy || volumeWriting);
   let volumeParameter = $derived(config?.parameters.find(p => p.name === 'volume'));
   let statusRead: Promise<void> | null = null;
+  let commandEpoch = 0;
   let pendingVolume: number | null = null;
   let volumeTimer: ReturnType<typeof setTimeout> | undefined;
   let mounted = false;
@@ -37,10 +38,11 @@
   async function refreshStatus() {
     if (!mounted || !config || config.dry_run || busy || volumeWriting || statusRead || document.hidden) return;
     const requestedZone = zone;
+    const epoch = commandEpoch;
     statusRead = (async () => {
       try {
         const result = await api(`/api/status?zone=${requestedZone}`);
-        if (zone !== requestedZone || !mounted) return;
+        if (epoch !== commandEpoch || zone !== requestedZone || !mounted) return;
         volume = result.volume;
         power = typeof result.power?.value === 'boolean' ? result.power.value : null;
         volumeStatus = volume ? 'Live · turn to adjust' : 'Volume unavailable';
@@ -49,7 +51,7 @@
         inputStatus = !result.current_input_supported ? 'Available in Zone 1 only'
           : available === 7 ? 'Live' : available ? 'Partial reply' : 'No parameter reply';
       } catch {
-        if (zone !== requestedZone || !mounted) return;
+        if (epoch !== commandEpoch || zone !== requestedZone || !mounted) return;
         volume = null;
         power = null;
         volumeStatus = 'No volume reply';
@@ -69,9 +71,9 @@
   async function writeVolume() {
     if (volumeWriting || busy || pendingVolume === null || !mounted) return;
     volumeWriting = true;
+    commandEpoch += 1;
     const requestedZone = zone;
     try {
-      await statusRead;
       while (mounted && pendingVolume !== null && zone === requestedZone) {
         const raw = pendingVolume;
         pendingVolume = null;
@@ -150,11 +152,11 @@
     clearTimeout(volumeTimer);
     volumeTimer = undefined;
     const description = config.commands.find(c => c.name === command)?.description ?? command;
+    commandEpoch += 1;
     busy = true;
     error = false;
     message = `Sending ${description.toLowerCase()}…`;
     try {
-      await statusRead;
       const result = await api('/api/ir', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command, zone }),

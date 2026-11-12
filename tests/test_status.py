@@ -5,7 +5,7 @@ import unittest
 
 import serial
 
-from app import create_app
+from app import StatusCache, create_app
 from control import build_bk_command
 from parameters import CURRENT_INPUT_PARAMETERS, ParameterAddress, VOLUME
 from serial_connection import SerialBusyError, SerialConnection, SerialReplyTimeout
@@ -89,18 +89,55 @@ class StatusApiTests(unittest.TestCase):
         self.assertIs(response.json['power']['value'], True)
 
     def test_partial_timeout_keeps_only_valid_reported_fields(self):
-        self.connection.query.side_effect = SerialReplyTimeout(status_reply('1=38,F5=18'))
-        result = self.client.get('/api/status').json
+        connection = Mock()
+        connection.query.side_effect = [SerialReplyTimeout(status_reply('1=38,F5=18')), TimeoutError()]
+        cache = StatusCache()
+        client = create_app(Settings(), connection, cache).test_client()
+        result = client.get('/api/status').json
         self.assertFalse(result['complete'])
         self.assertIsNone(result['power'])
         self.assertEqual(result['volume']['value'], -40)
         self.assertEqual(result['current_input']['center_level']['value'], 0)
         self.assertIsNone(result['current_input']['surround_mode'])
-        self.connection.query.side_effect = TimeoutError()
-        result = self.client.get('/api/status').json
+        self.assertEqual(client.get('/api/status').json, result)
+        self.assertEqual(connection.query.call_count, 1)
+        cache.invalidate(1)
+        result = client.get('/api/status').json
         self.assertIsNone(result['volume'])
         self.assertFalse(result['complete'])
         self.assertTrue(all(reading is None for reading in result['current_input'].values()))
+        self.assertEqual(connection.query.call_count, 2)
+
+    def test_fresh_status_answers_another_poll_without_serial(self):
+        connection = Mock()
+        connection.query.return_value = status_reply() + power_reply()
+        client = create_app(Settings(), connection).test_client()
+        first = client.get('/api/status')
+        second = client.get('/api/status')
+        self.assertEqual(second.json, first.json)
+        connection.query.assert_called_once()
+
+    def test_volume_readback_updates_cached_status(self):
+        self.client.get('/api/status')
+        self.connection.query.return_value = build_bk_command('0,R,P1=FF,1=60')
+        posted = self.client.post('/api/volume', json={'raw': 0x60})
+        self.assertEqual(posted.status_code, 200)
+        status = self.client.get('/api/status')
+        self.assertEqual(status.json['volume']['value'], 0)
+        self.assertIs(status.json['power']['value'], True)
+        self.assertEqual(status.json['current_input']['surround_mode']['label'], 'Stereo')
+        self.assertEqual(self.connection.query.call_count, 2)
+        self.connection.query.return_value = build_bk_command('0,R,P2=FF,1=38')
+        self.client.post('/api/volume', json={'zone': 2, 'raw': 0x38})
+        self.assertEqual(self.client.get('/api/status?zone=1').json['volume']['value'], 0)
+        self.assertEqual(self.connection.query.call_count, 3)
+
+    def test_ir_press_drops_cached_status(self):
+        self.connection.send.return_value = b""
+        self.client.get('/api/status')
+        self.assertEqual(self.client.post('/api/ir', json={'command': 'volume_up'}).status_code, 200)
+        self.client.get('/api/status')
+        self.assertEqual(self.connection.query.call_count, 2)
 
     def test_volume_is_required_for_a_complete_reply(self):
         self.connection.query.return_value = status_reply('F3=5,F4=1,F5=18,F6=5,F7=19,F8=F,F9=0')

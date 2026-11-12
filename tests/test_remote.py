@@ -247,9 +247,12 @@ class SerialTests(unittest.TestCase):
         self.assertEqual(self.port.write.call_count, 2)
 
     def _wait_until_queued(self, connection):
+        self._wait_until(lambda: connection._pending.qsize() >= 1, "command was not queued")
+
+    def _wait_until(self, ready, message="condition was not met"):
         deadline = time.monotonic() + 1
-        while connection._pending.qsize() < 1:
-            self.assertLess(time.monotonic(), deadline, "command was not queued")
+        while not ready():
+            self.assertLess(time.monotonic(), deadline, message)
             time.sleep(0.01)
 
     def test_preview_never_opens_adapter(self):

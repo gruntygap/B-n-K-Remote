@@ -96,10 +96,12 @@ The Python process serves `frontend/dist` and the API through Waitress. Node and
 Vite are not used at runtime. You may build on another computer and copy
 `frontend/dist/` onto the Pi at the same path, avoiding a Node installation on the
 Pi. Run one server process per serial adapter. The shared connection opens on the
-first command and stays open; later HTTP requests reuse that adapter. Overlapping
-commands wait in a short queue, and the reply read while a command is on the wire
-is matched back to that command. A full queue rejects the extra command, and
-failed writes are never retried automatically.
+first command and stays open; later HTTP requests reuse that adapter. Presses from
+every browser share one command queue, so two people can both use the remote.
+Status readings stay cached until a reported field changes. A volume read or
+write updates the cached volume, and an IR press drops that zone's snapshot so
+the next poll reads the receiver. A full command queue rejects the extra press,
+and failed writes are never retried automatically.
 Opening the web remote now queries volume and opens the adapter; loading only
 the `/api/remote` catalog does not transmit anything.
 
@@ -142,8 +144,10 @@ realtime reply; silence does not imply Off. If a sleeping receiver replies only
 with power Off, that state is retained even without preset data. Undocumented
 zones have unknown power rather than a guessed identifier.
 Partial replies retain valid readings and return null for missing fields with
-`complete: false`. Preview mode returns no fabricated values. Polls and writes
-share the frontend request coordination and the backend serial queue.
+`complete: false`. Preview mode returns no fabricated values. Later polls return
+the cached status instead of starting another serial read. A volume result
+replaces the cached volume and leaves the other fields in place. An IR command
+clears the cache for its zone.
 
 ## Raspberry Pi startup
 
