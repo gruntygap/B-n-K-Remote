@@ -14,7 +14,7 @@ class IRCommand(NamedTuple):
 # MODE +/- and SUB LVL +/- come from Series I Appendix F, pages 19-20.
 # Example: IR_COMMANDS["power_on"].code == 0x40
 IR_COMMANDS = {
-    "mode_down": IRCommand(0x00, "MODE -", debug=True),
+    "mode_down": IRCommand(0x00, "MODE -", debug=True),  # DOES NOT WORK
     "save": IRCommand(0x02, "SAVE"),
     "enter": IRCommand(0x0C, "ENTER"),
     "all_bk_power_off": IRCommand(0x14, "ALL B&K POWER OFF"),
@@ -46,7 +46,7 @@ IR_COMMANDS = {
     "video_source_up": IRCommand(0x5F, "VIDEO SOURCE +"),
     "input_3": IRCommand(0x60, "INPUT 3"),
     "preset_down": IRCommand(0x63, "PRESET -"),
-    "mode_up": IRCommand(0x64, "MODE +", debug=True),
+    "mode_up": IRCommand(0x64, "MODE +"),
     "source_down": IRCommand(0x65, "SOURCE -"),
     "source_up": IRCommand(0x66, "SOURCE +"),
     "digit_5": IRCommand(0x6C, "5"),

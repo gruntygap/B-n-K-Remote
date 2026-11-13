@@ -236,7 +236,10 @@
         <section class="sound-controls" aria-label="Sub level">
           <div class="adjust-row"><span>Sub level</span>
             <RemoteKey command="sub_level_down" label="Sub level down" icon="minus" variant="adjust" {disabled} onpress={send} />
-            <RemoteKey command="sub_level_up" label="Sub level up" icon="plus" variant="adjust" {disabled} onpress={send} />
+            <RemoteKey command="sub_level_up" label="Sub level up" icon="radio" variant="adjust" {disabled} onpress={send} />
+          </div>
+          <div class="adjust-row"><span>Mode</span>
+            <RemoteKey command="mode_up" label="Mode" icon="plus" variant="utility" {disabled} onpress={send} />
           </div>
         </section>
         <section class="navigation" aria-label="Menu navigation">
