@@ -9,7 +9,9 @@ def main():
     zone = 1
     address = ParameterAddress(zone=zone)
     parameter = CURRENT_INPUT_PARAMETERS.get("sub_level")
-    resp = connection.query(address.get(parameter, 0),
+    get_addr = address.get(parameter, 0)
+    print(get_addr)
+    resp = connection.query(get_addr,
         lambda data: address.read(parameter, data))
     print(resp)
     connection.close
