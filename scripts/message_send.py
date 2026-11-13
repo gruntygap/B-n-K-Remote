@@ -9,8 +9,8 @@ def main():
     zone = 1
     address = ParameterAddress(zone=zone)
     parameter = PRESET_PARAMETERS.get("volume")
-    resp = connection.query(address.get(parameter, zone),
-        lambda data: address.read(parameter, data) is not None)
+    resp = connection.query(address.get(parameter, 0),
+        lambda data: address.read(parameter, data))
     print(resp)
 
 
