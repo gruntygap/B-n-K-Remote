@@ -53,7 +53,14 @@ class ApiTests(unittest.TestCase):
     def test_catalog_loading_never_sends(self):
         response = self.client.get("/api/remote")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json["commands"]), 80)
+        self.assertEqual(len(response.json["commands"]), 78)
+        debug_commands = {command["name"] for command in response.json["commands"] if command["debug"]}
+        self.assertEqual(debug_commands, {"mode_down", "mode_up"})
+        self.assertFalse(any("balance" in command["name"] for command in response.json["commands"]))
+        self.assertTrue(all(parameter["debug"] for parameter in response.json["current_input_parameters"]))
+        parameters = {parameter["name"]: parameter for parameter in response.json["parameters"]}
+        self.assertFalse(parameters["volume"]["debug"])
+        self.assertNotIn("balance", parameters)
         self.assertEqual(len(control.UNIT_PARAMETERS), 42)
         self.connection.send.assert_not_called()
         self.assertEqual(response.headers["Cache-Control"], "no-store")

@@ -2,7 +2,7 @@
 
 A local receiver remote for Raspberry Pi, with a Python backend and a Svelte
 frontend sized for an iPhone. Physical-style controls cover power, volume, menu
-navigation, inputs, tuner, tone and the number pad. All 80 configured IR commands
+navigation, inputs, tuner, tone and the number pad. All 78 configured IR commands
 are available in the searchable **All IR commands** drawer.
 
 The volume dial beside the volume buttons supports touch rotation and keyboard
@@ -14,15 +14,12 @@ The dial shows the live reading in dB, or an unavailable state when there is no
 matching reply. During rotation, its caption distinguishes live volume from the
 requested setting.
 
-A second LCD below the wheel shows the current input's surround mode, surround
-command, center/rear/sub levels and center/rear delays. Levels use half-decibel
-steps from -12 to +12 dB. These `F3..F9` aliases are documented for Zone 1 only;
-Zone 2 displays an availability message. Missing or invalid replies show dashes.
-Surround command 2 retains both model-specific meanings. Rear delay is shown
-for non-Pro Logic; the PDF gives a 16-30 ms Pro Logic range without an exact
-raw-value mapping, so the display notes that distinction.
-Surround mode and sub-level +/- buttons below this display send Series I IR
-codes `00`/`64` and `B8`/`78`, respectively, then refresh the reported values.
+This AVR507 answers volume and does not answer the current-input aliases
+`F3..F9`, so those reads are marked debug and are not part of the live status
+poll or the main display. The definitions remain in `CURRENT_INPUT_PARAMETERS`
+for decoding a reply if one is requested directly. Surround mode (`00`/`64`)
+is marked debug and is not on the main remote. Balance IR is not in the
+command catalog. Sub level still has +/- buttons (`B8`/`78`).
 
 The top indicator shows the selected zone's reported power as On, Off or Unknown
 (Preview without a receiver). Power is read from Appendix D realtime parameter
@@ -114,7 +111,7 @@ values, and preset, system, realtime and unit blocks. A reading retains `raw`
 alongside the converted `value`, `unit` and `label`. For example, volume raw
 `0x38` is `{raw: 56, value: -40, unit: "dB", label: null}`; raw zero is mute,
 with a null numeric value. The initial common preset catalog covers title,
-volume, balance, tuner band and FM mode. It is not a complete model catalog.
+volume, tuner band and FM mode. It is not a complete model catalog.
 Parameters whose meanings depend on model, zone, tuning region or surround mode
 need their own definitions/conversion context; identifier alone is not a key.
 `CURRENT_INPUT_PARAMETERS` holds the separate Zone 1 alias definitions.
@@ -135,11 +132,12 @@ returns 429. Reads and writes are bounded and failed writes are not retried.
 Preview mode returns no live volume and leaves the dial inactive; the original
 IR volume buttons remain available to preview commands.
 
-The UI polls `GET /api/status?zone=1`, which combines volume and the seven
-current-input aliases in one request to the receiver. `ParameterAddress.get_many`
-and `read_many` handle batched requests and replies split across serial frames.
-The same serial transaction also sends `(00,G,R,13;checksum)` for Zone 1 power
-or `(00,G,R,14;checksum)` for Zone 2. Power is confirmed only by a matching
+The UI polls `GET /api/status?zone=1`, which reads live volume. Debug parameters
+are left out of that request. `ParameterAddress.get_many` builds one `G` packet
+per parameter, and each packet is its own serial exchange: write, read that
+reply, then ask for the next identifier. Zone 1 power is `(00,G,R,13;checksum)`
+and Zone 2 power is `(00,G,R,14;checksum)`, each before the volume get
+`(00,G,P1=FF,1;checksum)`. Power is confirmed only by a matching
 realtime reply; silence does not imply Off. If a sleeping receiver replies only
 with power Off, that state is retained even without preset data. Undocumented
 zones have unknown power rather than a guessed identifier.

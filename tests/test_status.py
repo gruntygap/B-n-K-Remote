@@ -1,4 +1,4 @@
-"""Current input aliases share a bounded poll with the live volume reading."""
+"""Live status reads volume and power. Current-input aliases stay in the debug catalog."""
 from dataclasses import replace
 from unittest.mock import Mock, patch
 import unittest
@@ -25,7 +25,8 @@ class InputParameterTests(unittest.TestCase):
         parameters = tuple(CURRENT_INPUT_PARAMETERS.values())
         self.assertEqual([parameter.code for parameter in parameters], list(range(0xF3, 0xFA)))
         address = ParameterAddress()
-        self.assertEqual(address.get_many(parameters, 0x1A), build_bk_command('1A,G,P1=FF,F3,F4,F5,F6,F7,F8,F9'))
+        self.assertEqual(address.get_many(parameters, 0x1A), tuple(
+            build_bk_command(f'1A,G,P1=FF,{parameter.code:X}') for parameter in parameters))
         readings = address.read_many(parameters, status_reply())
         self.assertEqual(readings['surround_mode']['label'], 'Stereo')
         self.assertEqual(readings['surround_command']['label'], 'Lock Analog')
@@ -35,6 +36,7 @@ class InputParameterTests(unittest.TestCase):
         self.assertEqual(readings['center_delay']['value'], 5)
         self.assertEqual(readings['rear_delay']['value'], 15)
         self.assertIn('without an exact mapping', CURRENT_INPUT_PARAMETERS['rear_delay'].note)
+        self.assertTrue(all(parameter.debug for parameter in parameters))
         for name in ['center_level', 'rear_level', 'sub_level']:
             self.assertEqual(CURRENT_INPUT_PARAMETERS[name].reading(0x30)['value'], 12)
 
@@ -57,23 +59,28 @@ class StatusApiTests(unittest.TestCase):
         self.connection.query.return_value = status_reply() + power_reply()
         self.client = create_app(Settings(), self.connection).test_client()
 
-    def test_one_poll_fetches_volume_and_all_input_aliases(self):
+    def test_one_poll_fetches_volume_and_power_only(self):
         result = self.client.get('/api/status?zone=1')
         self.assertEqual(result.status_code, 200)
         self.assertTrue(result.json['complete'])
-        self.assertTrue(result.json['current_input_supported'])
+        self.assertFalse(result.json['current_input_supported'])
         self.assertEqual(result.json['volume']['value'], -40)
-        self.assertEqual(len(result.json['current_input']), 7)
+        self.assertEqual(result.json['current_input'], {})
         self.assertEqual(result.headers['Cache-Control'], 'no-store')
-        packet, accepts = self.connection.query.call_args.args
-        self.assertEqual(packet, build_bk_command('00,G,P1=FF,1,F3,F4,F5,F6,F7,F8,F9'))
-        self.assertFalse(accepts(status_reply('1=38')))
-        self.assertFalse(accepts(status_reply(zone=2)))
-        self.assertFalse(accepts(status_reply()))
-        self.assertTrue(accepts(status_reply() + power_reply()))
-        self.assertEqual(self.connection.query.call_args.kwargs['before'], build_bk_command('00,G,R,13'))
+        power_call, volume_call = self.connection.query.call_args_list
+        self.assertEqual(power_call.args[0], build_bk_command('00,G,R,13'))
+        self.assertIsNone(power_call.kwargs.get('before'))
+        self.assertFalse(power_call.args[1](status_reply()))
+        self.assertFalse(power_call.args[1](power_reply(zone=2)))
+        self.assertTrue(power_call.args[1](power_reply()))
+        self.assertEqual(volume_call.args[0], build_bk_command('00,G,P1=FF,1'))
+        self.assertIsNone(volume_call.kwargs.get('before'))
+        self.assertTrue(volume_call.args[1](status_reply('1=38')))
+        self.assertFalse(volume_call.args[1](status_reply(zone=2)))
+        self.assertFalse(volume_call.args[1](power_reply()))
+        self.assertFalse(volume_call.args[1](status_reply('F3=5')))
         self.assertIs(result.json['power']['value'], True)
-        self.connection.query.assert_called_once()
+        self.assertEqual(self.connection.query.call_count, 2)
         self.connection.send.assert_not_called()
 
     def test_configured_address_and_zone_two_do_not_request_zone_one_aliases(self):
@@ -84,29 +91,29 @@ class StatusApiTests(unittest.TestCase):
         self.assertFalse(response.json['current_input_supported'])
         self.assertEqual(response.json['current_input'], {})
         self.assertTrue(response.json['complete'])
-        self.assertEqual(self.connection.query.call_args.args[0], build_bk_command('1A,G,P2=FF,1'))
-        self.assertEqual(self.connection.query.call_args.kwargs['before'], build_bk_command('1A,G,R,14'))
+        power_call, volume_call = self.connection.query.call_args_list
+        self.assertEqual(power_call.args[0], build_bk_command('1A,G,R,14'))
+        self.assertEqual(volume_call.args[0], build_bk_command('1A,G,P2=FF,1'))
         self.assertIs(response.json['power']['value'], True)
 
     def test_partial_timeout_keeps_only_valid_reported_fields(self):
         connection = Mock()
-        connection.query.side_effect = [SerialReplyTimeout(status_reply('1=38,F5=18')), TimeoutError()]
+        connection.query.side_effect = [SerialReplyTimeout(b''), status_reply('1=38'), TimeoutError()]
         cache = StatusCache()
         client = create_app(Settings(), connection, cache).test_client()
         result = client.get('/api/status').json
         self.assertFalse(result['complete'])
         self.assertIsNone(result['power'])
         self.assertEqual(result['volume']['value'], -40)
-        self.assertEqual(result['current_input']['center_level']['value'], 0)
-        self.assertIsNone(result['current_input']['surround_mode'])
+        self.assertEqual(result['current_input'], {})
         self.assertEqual(client.get('/api/status').json, result)
-        self.assertEqual(connection.query.call_count, 1)
+        self.assertEqual(connection.query.call_count, 2)
         cache.invalidate(1)
         result = client.get('/api/status').json
         self.assertIsNone(result['volume'])
         self.assertFalse(result['complete'])
         self.assertTrue(all(reading is None for reading in result['current_input'].values()))
-        self.assertEqual(connection.query.call_count, 2)
+        self.assertEqual(connection.query.call_count, 3)
 
     def test_fresh_status_answers_another_poll_without_serial(self):
         connection = Mock()
@@ -115,7 +122,7 @@ class StatusApiTests(unittest.TestCase):
         first = client.get('/api/status')
         second = client.get('/api/status')
         self.assertEqual(second.json, first.json)
-        connection.query.assert_called_once()
+        self.assertEqual(connection.query.call_count, 2)
 
     def test_volume_readback_updates_cached_status(self):
         self.client.get('/api/status')
@@ -125,19 +132,19 @@ class StatusApiTests(unittest.TestCase):
         status = self.client.get('/api/status')
         self.assertEqual(status.json['volume']['value'], 0)
         self.assertIs(status.json['power']['value'], True)
-        self.assertEqual(status.json['current_input']['surround_mode']['label'], 'Stereo')
-        self.assertEqual(self.connection.query.call_count, 2)
+        self.assertEqual(status.json['current_input'], {})
+        self.assertEqual(self.connection.query.call_count, 3)
         self.connection.query.return_value = build_bk_command('0,R,P2=FF,1=38')
         self.client.post('/api/volume', json={'zone': 2, 'raw': 0x38})
         self.assertEqual(self.client.get('/api/status?zone=1').json['volume']['value'], 0)
-        self.assertEqual(self.connection.query.call_count, 3)
+        self.assertEqual(self.connection.query.call_count, 4)
 
     def test_ir_press_drops_cached_status(self):
         self.connection.send.return_value = b""
         self.client.get('/api/status')
         self.assertEqual(self.client.post('/api/ir', json={'command': 'volume_up'}).status_code, 200)
         self.client.get('/api/status')
-        self.assertEqual(self.connection.query.call_count, 2)
+        self.assertEqual(self.connection.query.call_count, 4)
 
     def test_volume_is_required_for_a_complete_reply(self):
         self.connection.query.return_value = status_reply('F3=5,F4=1,F5=18,F6=5,F7=19,F8=F,F9=0')
@@ -165,18 +172,23 @@ class StatusApiTests(unittest.TestCase):
 
 class StatusSerialTests(unittest.TestCase):
     @patch('serial_connection.time.sleep')
-    def test_split_reply_waits_for_last_parameter(self, _sleep):
+    def test_each_parameter_is_its_own_exchange(self, _sleep):
+        parameters = (VOLUME, *tuple(CURRENT_INPUT_PARAMETERS.values())[:2])
+        address = ParameterAddress()
+        packets = address.get_many(parameters)
+        replies = [status_reply('1=38'), status_reply('F3=5'), status_reply('F4=1')]
         port = Mock()
         port.write.side_effect = lambda packet: len(packet)
-        port.read_until.side_effect = [status_reply('1=38,F3=5,F4=1'), status_reply('F5=18,F6=5'), status_reply('F7=19,F8=F,F9=0')]
+        port.read_until.side_effect = replies
         connection = SerialConnection(Settings(), Mock(return_value=port))
         self.addCleanup(connection.close)
-        address = ParameterAddress()
-        parameters = (VOLUME, *CURRENT_INPUT_PARAMETERS.values())
-        result = connection.query(address.get_many(parameters), lambda data: all(value is not None for value in address.read_many(parameters, data).values()))
-        self.assertEqual(port.read_until.call_count, 3)
-        self.assertEqual(address.read_many(parameters, result)['sub_level']['value'], -12)
-        port.write.assert_called_once()
+        response = b""
+        for parameter, packet in zip(parameters, packets):
+            response += connection.query(packet, lambda data, parameter=parameter: address.read(parameter, data) is not None)
+        self.assertEqual([call.args[0] for call in port.write.call_args_list], list(packets))
+        self.assertEqual(port.read_until.call_count, len(parameters))
+        self.assertEqual(port.reset_input_buffer.call_count, len(parameters))
+        self.assertEqual(address.read(parameters[2], response)['label'], 'Lock Analog')
 
     @patch('serial_connection.time.sleep')
     def test_partial_timeout_preserves_bytes_and_connection(self, _sleep):

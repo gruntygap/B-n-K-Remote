@@ -6,8 +6,8 @@
   import InputDisplay from './InputDisplay.svelte';
   import { volumeLabel } from './volume.js';
 
-  type Command = { name: string; code: string; description: string };
-  type Parameter = { name: string; code: string; description: string; note: string; kind: string; minimum: number; maximum: number; offset: number };
+  type Command = { name: string; code: string; description: string; debug?: boolean };
+  type Parameter = { name: string; code: string; description: string; note: string; kind: string; minimum: number; maximum: number; offset: number; debug?: boolean };
   type Config = { commands: Command[]; zones: number[]; default_zone: number; dry_run: boolean; parameters: Parameter[]; current_input_parameters: Parameter[] };
   type Reading = { raw: number; value: number | null; unit: string; label: string | null };
   let config = $state<Config | null>(null);
@@ -20,6 +20,7 @@
   let advancedCommand = $state('power_toggle');
   let search = $state('');
   let filtered = $derived(config?.commands.filter(c => `${c.name} ${c.description} ${c.code}`.toLowerCase().includes(search.toLowerCase())) ?? []);
+  let liveInputParameters = $derived((config?.current_input_parameters ?? []).filter(parameter => !parameter.debug));
   let volume = $state<Reading | null>(null);
   let power = $state<boolean | null>(null);
   let powerLabel = $derived(config?.dry_run ? 'PREVIEW' : power === true ? 'ON' : power === false ? 'OFF' : 'UNKNOWN');
@@ -48,8 +49,9 @@
         volumeStatus = volume ? 'Live · turn to adjust' : 'Volume unavailable';
         currentInput = result.current_input;
         const available = Object.values(currentInput).filter(Boolean).length;
+        const expected = liveInputParameters.length;
         inputStatus = !result.current_input_supported ? 'Available in Zone 1 only'
-          : available === 7 ? 'Live' : available ? 'Partial reply' : 'No parameter reply';
+          : expected > 0 && available === expected ? 'Live' : available ? 'Partial reply' : 'No parameter reply';
       } catch {
         if (epoch !== commandEpoch || zone !== requestedZone || !mounted) return;
         volume = null;
@@ -227,15 +229,15 @@
         <VolumeDial raw={volume?.raw ?? null} disabled={!config || config.dry_run || busy || !volume}
           status={volumeStatus} maximum={volumeParameter?.maximum} offset={volumeParameter?.offset} onchange={changeVolume} />
         </div>
-        <InputDisplay parameters={config?.current_input_parameters ?? []} readings={currentInput}
-          status={inputStatus} supported={zone === 1} />
-        <section class="sound-controls" aria-label="Current input sound controls">
-          {#each [['mode', 'Surround mode'], ['sub_level', 'Sub level']] as [name, label]}
-            <div class="adjust-row"><span>{label}</span>
-              <RemoteKey command={`${name}_down`} label={`${label} down`} icon="minus" variant="adjust" {disabled} onpress={send} />
-              <RemoteKey command={`${name}_up`} label={`${label} up`} icon="plus" variant="adjust" {disabled} onpress={send} />
-            </div>
-          {/each}
+        {#if liveInputParameters.length}
+          <InputDisplay parameters={liveInputParameters} readings={currentInput}
+            status={inputStatus} supported={zone === 1} />
+        {/if}
+        <section class="sound-controls" aria-label="Sub level">
+          <div class="adjust-row"><span>Sub level</span>
+            <RemoteKey command="sub_level_down" label="Sub level down" icon="minus" variant="adjust" {disabled} onpress={send} />
+            <RemoteKey command="sub_level_up" label="Sub level up" icon="plus" variant="adjust" {disabled} onpress={send} />
+          </div>
         </section>
         <section class="navigation" aria-label="Menu navigation">
           <span class="section-label">NAVIGATE</span>
@@ -274,10 +276,10 @@
             <RemoteKey command="am" label="AM" {disabled} onpress={send} />
             <RemoteKey command="fm" label="FM" {disabled} onpress={send} />
           </div>
-          {#each [['tune', 'Tune'], ['preset', 'Preset'], ['station', 'Station'], ['bass', 'Bass'], ['treble', 'Treble'], ['balance', 'Balance']] as [name, label]}
+          {#each [['tune', 'Tune'], ['preset', 'Preset'], ['station', 'Station'], ['bass', 'Bass'], ['treble', 'Treble']] as [name, label]}
             <div class="adjust-row"><span>{label}</span>
-              <RemoteKey command={`${name}_${name === 'balance' ? 'left' : 'down'}`} label={`${label} ${name === 'balance' ? 'left' : 'down'}`} icon="minus" variant="adjust" {disabled} onpress={send} />
-              <RemoteKey command={`${name}_${name === 'balance' ? 'right' : 'up'}`} label={`${label} ${name === 'balance' ? 'right' : 'up'}`} icon="plus" variant="adjust" {disabled} onpress={send} />
+              <RemoteKey command={`${name}_down`} label={`${label} down`} icon="minus" variant="adjust" {disabled} onpress={send} />
+              <RemoteKey command={`${name}_up`} label={`${label} up`} icon="plus" variant="adjust" {disabled} onpress={send} />
             </div>
           {/each}
           <div class="two-grid">

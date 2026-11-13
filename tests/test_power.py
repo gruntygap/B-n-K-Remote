@@ -38,7 +38,7 @@ class PowerTests(unittest.TestCase):
 
     def test_off_is_confirmed_even_if_sleeping_receiver_has_no_preset_reply(self):
         connection = Mock()
-        connection.query.side_effect = SerialReplyTimeout(power_reply(raw=0))
+        connection.query.side_effect = [SerialReplyTimeout(power_reply(raw=0)), SerialReplyTimeout(b'')]
         client = create_app(Settings(), connection).test_client()
         result = client.get('/api/status').json
         self.assertIs(result['power']['value'], False)
@@ -63,29 +63,28 @@ class PowerTests(unittest.TestCase):
         result = create_app(settings, connection).test_client().get('/api/status?zone=3').json
         self.assertFalse(result['power_supported'])
         self.assertIsNone(result['power'])
-        self.assertIsNone(connection.query.call_args.kwargs['before'])
+        self.assertEqual(connection.query.call_count, 1)
+        self.assertIsNone(connection.query.call_args.kwargs.get('before'))
 
     @patch('serial_connection.time.sleep')
-    def test_companion_realtime_and_preset_queries_share_one_transaction(self, _sleep):
-        for frames in [[power_reply(), status_reply()], [status_reply(), power_reply()]]:
-            with self.subTest(frames=frames):
-                port = Mock()
-                port.write.side_effect = lambda packet: len(packet)
-                port.read_until.side_effect = frames
-                connection = SerialConnection(Settings(), Mock(return_value=port))
-                try:
-                    client = create_app(Settings(), connection).test_client()
-                    response = client.get('/api/status')
-                    self.assertEqual(response.status_code, 200)
-                    self.assertTrue(response.json['complete'])
-                    self.assertIs(response.json['power']['value'], True)
-                    self.assertEqual(port.read_until.call_count, 2)
-                    self.assertEqual([call.args[0] for call in port.write.call_args_list], [
-                        build_bk_command('00,G,R,13'),
-                        build_bk_command('00,G,P1=FF,1,F3,F4,F5,F6,F7,F8,F9')])
-                    port.reset_input_buffer.assert_called_once()
-                finally:
-                    connection.close()
+    def test_power_and_volume_are_separate_exchanges(self, _sleep):
+        port = Mock()
+        port.write.side_effect = lambda packet: len(packet)
+        port.read_until.side_effect = [power_reply(), status_reply()]
+        connection = SerialConnection(Settings(), Mock(return_value=port))
+        try:
+            client = create_app(Settings(), connection).test_client()
+            response = client.get('/api/status')
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json['complete'])
+            self.assertIs(response.json['power']['value'], True)
+            self.assertEqual(port.read_until.call_count, 2)
+            self.assertEqual([call.args[0] for call in port.write.call_args_list], [
+                build_bk_command('00,G,R,13'),
+                build_bk_command('00,G,P1=FF,1')])
+            self.assertEqual(port.reset_input_buffer.call_count, 2)
+        finally:
+            connection.close()
 
 
 if __name__ == '__main__':

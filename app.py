@@ -101,7 +101,7 @@ def create_app(settings=None, connection=None, cache=None):
     def remote():
         # Loading the page does not open the adapter or transmit a command.
         return jsonify(
-            commands=[dict(name=name, code=f"{c.code:02X}", description=c.description)
+            commands=[dict(name=name, code=f"{c.code:02X}", description=c.description, debug=c.debug)
                       for name, c in IR_COMMANDS.items()],
             zones=list(settings.remote_zones), default_zone=settings.default_zone,
             dry_run=settings.dry_run,
@@ -121,8 +121,9 @@ def create_app(settings=None, connection=None, cache=None):
             return jsonify(error="Choose a configured zone."), 400
         if zone not in settings.remote_zones:
             return jsonify(error="Choose a configured zone."), 400
-        supported = zone == 1
-        parameters = (VOLUME, *CURRENT_INPUT_PARAMETERS.values()) if supported else (VOLUME,)
+        live_input = tuple(parameter for parameter in CURRENT_INPUT_PARAMETERS.values() if not parameter.debug)
+        supported = zone == 1 and bool(live_input)
+        parameters = (VOLUME, *live_input) if supported else (VOLUME,)
         parameter_address = ParameterAddress(zone=zone)
         power_parameter = ZONE_POWER_PARAMETERS.get(zone)
         realtime_address = ParameterAddress(block="realtime", zone=None)
@@ -132,18 +133,22 @@ def create_app(settings=None, connection=None, cache=None):
         power = None
         readings = {parameter.name: None for parameter in parameters}
         if not settings.dry_run:
-            def complete(response):
-                return (all(reading is not None for reading in parameter_address.read_many(parameters, response).values())
-                        and (power_parameter is None or realtime_address.read(power_parameter, response) is not None))
+            # Each get is its own exchange: write one identifier, read that reply, then the next.
+            requests = []
+            if power_parameter is not None:
+                requests.append((realtime_address.get(power_parameter, settings.device_address),
+                                 lambda data: realtime_address.read(power_parameter, data) is not None))
+            for parameter, packet in zip(parameters, parameter_address.get_many(parameters, settings.device_address)):
+                requests.append((packet, lambda data, parameter=parameter: parameter_address.read(parameter, data) is not None))
+            response = b""
             try:
-                # Power and preset reads share one queued exchange and one reply buffer.
-                power_packet = realtime_address.get(power_parameter, settings.device_address) if power_parameter else None
-                response = connection.query(parameter_address.get_many(parameters, settings.device_address), complete,
-                                            before=power_packet)
-            except SerialReplyTimeout as error:
-                response = error.response
+                for packet, accepts in requests:
+                    try:
+                        response += connection.query(packet, accepts)
+                    except SerialReplyTimeout as error:
+                        response += error.response
             except TimeoutError:
-                response = b""
+                pass
             except SerialBusyError as error:
                 return jsonify(error=str(error)), 429
             except (serial.SerialException, OSError):

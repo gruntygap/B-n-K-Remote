@@ -26,6 +26,7 @@ class Parameter:
     choices: tuple[tuple[int, str], ...] = ()
     special_values: tuple[tuple[int, str], ...] = ()
     note: str = ""
+    debug: bool = False
 
     def validate(self, raw):
         if self.kind == "text":
@@ -76,7 +77,7 @@ class Parameter:
                 "minimum": self.minimum, "maximum": self.maximum,
                 "unit": self.unit, "scale": self.scale, "offset": self.offset,
                 "choices": dict(self.choices), "special_values": dict(self.special_values),
-                "note": self.note}
+                "note": self.note, "debug": self.debug}
 
 
 # Common to both Series I preset zones. Model/zone-specific entries can use
@@ -85,8 +86,6 @@ PRESET_PARAMETERS = {
     "title": Parameter("title", 0, "Preset title", kind="text", maximum=0x0D),
     "volume": Parameter("volume", 1, "Volume", maximum=0x6F, unit="dB", offset=-96,
                         special_values=((0, "Mute"),), note="Appendix A, Note 1"),
-    "balance": Parameter("balance", 2, "Balance", maximum=0x30,
-                         note="Note 15: 18h is centered; each step attenuates one side by 0.5 dB"),
     "tuner_band": Parameter("tuner_band", 4, "Tuner band", kind="enum", maximum=1,
                             choices=((0, "AM"), (1, "FM")), note="Note 4"),
     "tuner_fm_mode": Parameter("tuner_fm_mode", 7, "FM stereo", kind="boolean", maximum=1,
@@ -94,24 +93,24 @@ PRESET_PARAMETERS = {
 }
 VOLUME = PRESET_PARAMETERS["volume"]
 
-# Appendix A, current input aliases (Note 13): these apply to Zone 1 only.
-# Note 9 gives two different meanings for command 2 depending on model; keep
-# both rather than silently identifying an unconfigured model.
+# Appendix A, current input aliases (Note 13). Kept for debugging. This AVR507
+# answers volume and does not return these F3..F9 aliases, so they stay out of
+# the live status poll. Note 9 gives two meanings for command 2; keep both.
 CURRENT_INPUT_PARAMETERS = {
-    "surround_mode": Parameter("surround_mode", 0xF3, "Surround mode", kind="enum", maximum=6,
+    "surround_mode": Parameter("surround_mode", 0xF3, "Surround mode", kind="enum", maximum=6, debug=True,
         choices=((0, "Surround"), (1, "3 Hall"), (2, "Stereo 3"), (3, "Stereo Hall"),
                  (4, "Stereo Front/Rear"), (5, "Stereo"), (6, "Stereo Lt/Rt")), note="Note 8"),
-    "surround_command": Parameter("surround_command", 0xF4, "Surround command", kind="enum", maximum=3,
+    "surround_command": Parameter("surround_command", 0xF4, "Surround command", kind="enum", maximum=3, debug=True,
         choices=((0, "Auto"), (1, "Lock Analog"), (2, "Lock DTS / AC3 compression"), (3, "AC3 compression")),
         note="Note 9: command 2 is Lock DTS on REF20/AVR202, AC3 compression on REF10/AVR101"),
-    "center_level": Parameter("center_level", 0xF5, "Center level", maximum=0x30,
+    "center_level": Parameter("center_level", 0xF5, "Center level", maximum=0x30, debug=True,
         unit="dB", scale=0.5, offset=-12, note="Note 2"),
-    "center_delay": Parameter("center_delay", 0xF6, "Center delay", maximum=5, unit="ms", note="Note 10"),
-    "rear_level": Parameter("rear_level", 0xF7, "Rear level", maximum=0x30,
+    "center_delay": Parameter("center_delay", 0xF6, "Center delay", maximum=5, unit="ms", debug=True, note="Note 10"),
+    "rear_level": Parameter("rear_level", 0xF7, "Rear level", maximum=0x30, debug=True,
         unit="dB", scale=0.5, offset=-12, note="Note 2"),
-    "rear_delay": Parameter("rear_delay", 0xF8, "Rear delay", maximum=0x0F, unit="ms",
+    "rear_delay": Parameter("rear_delay", 0xF8, "Rear delay", maximum=0x0F, unit="ms", debug=True,
         note="Note 11: raw 0-F is 0-15 ms outside Pro Logic; the manual specifies 16-30 ms in Pro Logic without an exact mapping"),
-    "sub_level": Parameter("sub_level", 0xF9, "Sub level", maximum=0x30,
+    "sub_level": Parameter("sub_level", 0xF9, "Sub level", maximum=0x30, debug=True,
         unit="dB", scale=0.5, offset=-12, note="Note 2"),
 }
 
@@ -147,13 +146,17 @@ class ParameterAddress:
         return f"P{self.zone:X}={self.preset:X}"
 
     def get(self, parameter: Parameter, address=0):
-        return self.get_many((parameter,), address)
+        return self.get_many((parameter,), address)[0]
 
     def get_many(self, parameters, address=0):
-        identifiers = ",".join(f"{parameter.code:X}" for parameter in parameters)
-        if not identifiers:
+        """One get packet per parameter. The receiver answers one identifier at a time."""
+        parameters = tuple(parameters)
+        if not parameters:
             raise ValueError("Choose at least one parameter")
-        return build_bk_command(f"{address:02X},G,{self.selector()},{identifiers}")
+        return tuple(
+            build_bk_command(f"{address:02X},G,{self.selector()},{parameter.code:X}")
+            for parameter in parameters
+        )
 
     def read_many(self, parameters, response):
         # A receiver may return all parameters in one frame or split replies
